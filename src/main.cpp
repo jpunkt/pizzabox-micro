@@ -36,14 +36,19 @@
 volatile int32_t hor_pos;
 volatile int32_t vert_pos;
 
+int32_t hor_aim;
+int32_t vert_aim;
+
+bool up;
+
 Motor vert_up(VERT_UP_PWM, VERT_UP_AIN1, VERT_UP_AIN2);
 Motor vert_down(VERT_DOWN_PWM, VERT_DOWN_AIN1, VERT_DOWN_AIN2);
 Motor horz_left(HORZ_LEFT_PWM, HORZ_LEFT_AIN1, HORZ_LEFT_AIN2);
 Motor horz_right(HORZ_RIGHT_PWM, HORZ_RIGHT_AIN1, HORZ_RIGHT_AIN2);
 
 int32_t count(int pinA, int pinB) {
-  if (digitalRead(pinA)) return digitalRead(pinB) ? 1 : -1;
-  else return digitalRead(pinB) ? -1 : 1;
+  if (digitalRead(pinA)) return digitalRead(pinB) ? -1 : 1;
+  else return digitalRead(pinB) ? 1 : -1;
 }
 
 void hor_count() {
@@ -61,6 +66,9 @@ void setup() {
 
   hor_pos = 0;
   vert_pos = 0;
+
+  hor_aim = 0;
+  vert_aim = -20;
 
   vert_up.setup();
   vert_down.setup();
@@ -89,9 +97,21 @@ void setup() {
 }
 
 void loop() {
-  // Serial.printf("hor_count1: %i | \t hor_count2: %i | \t vert_count1: %i | \t vert_count2: %i \n", digitalRead(HORZ_CNT_INNER), digitalRead(HORZ_CNT_OUTER), digitalRead(VERT_CNT_INNER), digitalRead(VERT_CNT_OUTER));
 
-  Serial.printf("hor_count %i | \t vert_count %i \n", hor_pos, vert_pos);
+  if (vert_pos < vert_aim) {
+    vert_down.run(255, false);
+    vert_up.run(127, false);
+  } else if (vert_pos > vert_aim) {
+    vert_up.run(255, true);
+    vert_down.run(127, true);
+  } else {
+    vert_up.stop(false);
+    vert_down.stop(false);
+    vert_aim = (vert_aim == 50) ? 0 : 50;
+    delay(100);
+  }
 
-  delay(500);
+  Serial.printf("hor_count %i | \t vert_count %i | \t vert_aim %i \n", hor_pos, vert_pos, vert_aim);
+
+  delayMicroseconds(10);
 }

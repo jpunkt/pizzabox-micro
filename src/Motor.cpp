@@ -10,8 +10,11 @@ Motor::Motor(uint8_t pwm, uint8_t in1, uint8_t in2)
 void Motor::setup()
 {
   pinMode(pwm_pin, OUTPUT);
+  analogWrite(pwm_pin, 0);
   pinMode(in1_pin, OUTPUT);
+  digitalWrite(in1_pin, LOW);
   pinMode(in2_pin, OUTPUT);
+  digitalWrite(in2_pin, LOW);
 }
 
 void Motor::run(uint8_t speed, bool forward)
