@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Adafruit_NeoPixel.h>
 #include "Motor.h"
+#include "Serial_Comm.h"
 
 // Vertical motor top
 #define VERT_UP_PWM   3
@@ -95,6 +96,7 @@ void mot_control(Motor mot1, Motor mot2, int32_t pos, int32_t aim) {
 
 void setup() {
   Serial.begin(115200);
+  Serial1.begin(115200);
 
   pinMode(LED_BUILTIN, OUTPUT);
 
@@ -143,36 +145,26 @@ void setup() {
 }
 
 void loop() {
-  // led_front.setPixelColor(led_n, 0, 0, 0, led_on ? 255 : 0);
-  uint32_t c = led_back.Color((color == 0 || color == 1 || color == 2 || color == 9) ? brightness : 0,
-                               (color == 2 || color == 3 || color == 4 || color == 8) ? brightness : 0,
-                               (color == 4 || color == 5 || color == 6 || color == 9) ? brightness : 0,
-                               (color == 6 || color == 7 || color == 0 || color == 8) ? brightness : 0);
-  if (back) {
-    led_back.fill(c);
-    led_back.show();
-  } else {
-    led_front.fill(c);
-    led_front.show();
-  }
-  delay(10);
-
-  if (led_on && (brightness < 255)) {
-    brightness++;
-  } else if (!led_on && (brightness > 0)) {
-    brightness--;
-  } else {
-    if (!led_on) {
-      if (color < 9) color++;
-      else {
-        color = 0;
-        back = !back;
+  if (Serial1.available() > 0) {
+    Serial.printf("Serial1.available = %i \n", Serial1.available());
+    Command cmd = read_command(Serial1);
+    switch (cmd)
+    {
+    case HELLO:
+      {
+        Serial.println("Received HELLO");
+        break;
+      }
+    case MOTOR_H:
+      {
+        Serial.println("Received MOTOR_H");
+        break;
+      }
+    default:
+      {
+        Serial.println("Received something.");
+        break;
       }
     }
-    led_on = !led_on;
-  }
-
-  if (brightness % 8 == 0) {
-    Serial.printf("hor_pos %i | \t vert_pos %i \n", hor_pos, vert_pos);
   }
 }
