@@ -5,7 +5,7 @@ enum Command {
   RECEIVED = 3,
 
   MOTOR_H = 'H',
-  MOTOR_V = 'M',
+  MOTOR_V = 'V',
 
   BACKLIGHT = 'B',
   FRONTLIGHT = 'F',
