@@ -81,9 +81,8 @@ State* SER = sm.addState(&state_error);
 #define ERROR_OFF_MS 500
 
 /*-------- Variables --------*/
-// Heartbeat blinker times
-uint32_t on_time;
-uint32_t off_time;
+// Heartbeat blinker timer
+elapsedMillis blink_time;
 
 // Statemachine booleans
 bool handshake_complete;
@@ -153,17 +152,20 @@ void vert_count() {
  * @param on_interval  time LED stays on in millis 
  * @param off_interval time LED is off in millis
  */
-void blink_builtin(int on_interval, int off_interval) {
-  uint32_t cur_time = millis();
+void blink_builtin(uint32_t on_interval, uint32_t off_interval) {
   if (digitalRead(LED_BUILTIN)) {
-    if (off_time < cur_time) {
+    if (blink_time >= on_interval) {
       digitalWrite(LED_BUILTIN, LOW);
-      on_time = cur_time + off_interval;
+      blink_time = blink_time - on_interval;
+      // led_on = false;
+      // Serial.println("Turn LED off");
     }
   } else {
-    if (on_time < cur_time) {
+    if (blink_time >= off_interval) {
       digitalWrite(LED_BUILTIN, HIGH);
-      off_time = cur_time + on_interval;
+      blink_time = blink_time - off_interval;
+      // led_on = true;
+      // Serial.println("Turn LED on");
     }
   }
 }
@@ -420,8 +422,7 @@ void setup() {
   hor_pos = 0;
   vert_pos = 0;
 
-  on_time = 0;
-  off_time = 0;
+  blink_time = 0;
 
   vert_up.setup();
   vert_down.setup();
@@ -490,8 +491,8 @@ void state_post() {
 void state_zero() {
   Serial.println("State Zeroing.");
 
-  zero_motor(vert_up, vert_down, VERT_END_INNER, VERT_END_OUTER);
-  zero_motor(horz_left, horz_right, HORZ_END_OUTER, HORZ_END_INNER);  // TODO check this
+  // zero_motor(vert_up, vert_down, VERT_END_INNER, VERT_END_OUTER);
+  // zero_motor(horz_left, horz_right, HORZ_END_OUTER, HORZ_END_INNER);  // TODO check this
 }
 
 /**
@@ -516,14 +517,11 @@ void state_wait_serial() {
     handshake_complete = false;
 
     Serial.println("State Waiting for Serial Handshake.");
-    // digitalWrite(LED_BUILTIN, LOW);
-    // off_time = millis() + WAIT_ON_MS;
-    // on_time = millis() + WAIT_OFF_MS;
+    digitalWrite(LED_BUILTIN, LOW);
   }
 
   blink_builtin(WAIT_ON_MS, WAIT_OFF_MS);
-  
-  // ssp.loop();
+  ssp.loop();
 }
 
 /**
@@ -532,8 +530,10 @@ void state_wait_serial() {
  */
 void state_serial_com() {
   if (sm.executeOnce) {
+    digitalWrite(LED_BUILTIN, LOW);
     Serial.println("State Serial Communication.");
   }
+
   ssp.loop();
 }
 
@@ -583,6 +583,6 @@ bool transition_init_wait() {
  * @return false 
  */
 bool transition_wait_sercom() {
-  digitalWrite(LED_BUILTIN, LOW);
+  // digitalWrite(LED_BUILTIN, LOW);
   return handshake_complete;
 }

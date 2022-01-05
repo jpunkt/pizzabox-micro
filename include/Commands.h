@@ -11,6 +11,11 @@ enum Command {
   FRONTLIGHT = 'F',
 
   USER_INTERACT = 'U',
+
+  RESP_BLUE = 'X',
+  RESP_RED = 'O',
+  RESP_YELLOW = 'Y',
+  RESP_GREEN = 'N',
   
   RECORD = 'C',
   REWIND = 'R',
