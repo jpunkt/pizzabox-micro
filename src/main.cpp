@@ -37,8 +37,8 @@
 // Horizontal sensors
 #define HORZ_END_OUTER  33
 #define HORZ_END_INNER  34
-#define HORZ_CNT_INNER  35
-#define HORZ_CNT_OUTER  36
+#define HORZ_CNT_INNER  36
+#define HORZ_CNT_OUTER  35
 
 // Lights
 #define LED_FRONT 41
@@ -46,6 +46,11 @@
 
 #define LED_BACK  14
 #define LED_COUNT_BACK 72
+
+/*-------- Constants --------*/
+
+const int ENDSTOP_OVERRIDE = 8500;  // time to ignore endstop when motor starts (x 10 us)
+const int SCROLL_ERROR_MS = 500;    // if sensor values don't change in this time, the scroll has an error
 
 /*-------- State Definitions --------*/
 
@@ -91,6 +96,10 @@ bool handshake_complete;
 volatile int16_t hor_pos;
 volatile int16_t vert_pos;
 
+// Last change on position counters in millis
+elapsedMillis hor_lastchange;
+elapsedMillis vert_lastchange;
+
 /*-------- Objects --------*/
 // Motors
 Motor vert_up(VERT_UP_PWM, VERT_UP_AIN1, VERT_UP_AIN2);
@@ -133,8 +142,12 @@ int32_t count(int pinA, int pinB) {
  * 
  */
 void hor_count() {
-  // TODO enable: if (!digitalRead(HORZ_END_OUTER))
-  hor_pos -= count(HORZ_CNT_INNER, HORZ_CNT_OUTER);
+  if (!digitalRead(HORZ_END_OUTER)) {
+    hor_pos -= count(HORZ_CNT_INNER, HORZ_CNT_OUTER);
+  } else {
+    hor_pos = 0;
+  }
+  hor_lastchange = 0;
 }
 
 /**
@@ -142,8 +155,12 @@ void hor_count() {
  * 
  */
 void vert_count() {
-  // TODO enable: if (!digitalRead(VERT_END_OUTER))
-  vert_pos -= count(VERT_CNT_INNER, VERT_CNT_OUTER);
+  if (!digitalRead(VERT_END_INNER)) {
+    vert_pos -= count(VERT_CNT_INNER, VERT_CNT_OUTER);
+  } else {
+    vert_pos = 0;
+  }
+  vert_lastchange = 0;
 }
 
 /**
@@ -157,15 +174,11 @@ void blink_builtin(uint32_t on_interval, uint32_t off_interval) {
     if (blink_time >= on_interval) {
       digitalWrite(LED_BUILTIN, LOW);
       blink_time = blink_time - on_interval;
-      // led_on = false;
-      // Serial.println("Turn LED off");
     }
   } else {
     if (blink_time >= off_interval) {
       digitalWrite(LED_BUILTIN, HIGH);
       blink_time = blink_time - off_interval;
-      // led_on = true;
-      // Serial.println("Turn LED on");
     }
   }
 }
@@ -173,34 +186,45 @@ void blink_builtin(uint32_t on_interval, uint32_t off_interval) {
 /**
  * @brief Generic scroll zeroing code
  * 
+ * zero_pin   | end_pin   | Condition -> Action
+ * -----------+-----------+---------------------------
+ * 0          | 0         | scroll between start & end -> rewind
+ * 0          | 1         | scroll at end -> rewind
+ * 1          | 0         | scroll zeroed -> do nothing
+ * 1          | 1         | scroll at start end-stop -> forward until end-stop free
+ * 
  * @param mot1       Motor in positive direction
  * @param mot2       Motor in negative direction
  * @param zero_pin   Sensor pin where LOW enables count
  * @param end_pin    Sensor pin attached to emergency stop (end-stop)
  */
 void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin) {
-  bool is_zero = digitalRead(end_pin) & !digitalRead(zero_pin);
-  uint32_t end_time = millis() + 10000;
-
-  while (!is_zero & (millis() < end_time))
-  {
-    mot2.run(255, false);
-    mot1.run(127, false);
-    is_zero = digitalRead(zero_pin);
-  }
-
-  delayMicroseconds(20);
-
-  end_time = millis() + 200;
-
-  while (digitalRead(zero_pin) & (millis() < end_time))
-  {
-    mot1.run(200, true);
+  // elapsedMillis time = 0;
+  if (!digitalRead(zero_pin)) {
+    // rewind
+    while (!digitalRead(zero_pin)) {
+      mot2.run(255, false);
+      mot1.run(127, false);
+    }
+    mot1.stop(false);
+    delay(20); // TODO evaluate
+    mot2.stop(false);
+    delay(10);
+    mot1.stop(true);
+    mot2.stop(true);
+  } else if (digitalRead(end_pin)) {
+    // move forward
+    while(digitalRead(zero_pin)) {
+      mot1.run(127, true);
+      mot2.run(55, true);
+    }
+    mot2.stop(false);
+    delay(20);
+    mot1.stop(false);
+    delay(10);
+    mot1.stop(true);
     mot2.stop(true);
   }
-  
-  mot1.stop(false);
-  mot2.stop(false);
 }
 
 /**
@@ -306,19 +330,43 @@ bool mot_control(Motor &mot1, Motor &mot2, volatile int16_t &pos, int16_t &aim) 
 }
 
 /**
+ * @brief Generic check endstop and stop motor
+ * 
+ * @param mot1 
+ * @param mot2 
+ * @param outer_pin 
+ */
+bool mot_stop(Motor &mot1, Motor &mot2, int outer_pin) {
+  if (digitalRead(outer_pin)) {
+    mot1.stop(true);
+    mot2.stop(true);
+    Serial.printf("Motor stopped. \n");
+    return true;
+  }
+  return false;
+}
+
+/**
  * @brief Generic serial command handler to drive scroll to position
  * 
  * @param mot1  Motor in positive direction
  * @param mot2  Motor in negative direction
  * @param pos   position variable
  */
-void serial_motor(Motor &mot1, Motor &mot2, volatile int16_t &pos) {
+void serial_motor(Motor &mot1, Motor &mot2, volatile int16_t &pos, int end_pin) {
   int16_t inc = ssp.readInt16();
   ssp.readEot();
 
   int16_t aim = pos + inc;
+  int16_t c = 0;
   while (!mot_control(mot1, mot2, pos, aim)) {
-    Serial.printf("aim = %i, pos = %i \n", aim, pos);
+    if (c < ENDSTOP_OVERRIDE) {
+      c++;
+    } else {
+      if (mot_stop(mot1, mot2, end_pin)) {
+        break;
+      }
+    }
     delayMicroseconds(10);
   }
 }
@@ -368,7 +416,7 @@ void serial_frontlight() {
  */
 void serial_motor_v() {
   Serial.println("Received MOTOR_V");
-  serial_motor(vert_up, vert_down, vert_pos);
+  serial_motor(vert_up, vert_down, vert_pos, VERT_END_OUTER);
   serial_received();
 }
 
@@ -377,8 +425,8 @@ void serial_motor_v() {
  * 
  */
 void serial_motor_h() {
-  Serial.println("Received MOTOR_V");
-  serial_motor(horz_left, horz_right, hor_pos);
+  Serial.println("Received MOTOR_H");
+  serial_motor(horz_left, horz_right, hor_pos, HORZ_END_INNER);
   serial_received();
 }
 
@@ -399,6 +447,7 @@ void serial_record() {
 void serial_rewind() {
   ssp.readEot();
   Serial.println("Received REWIND");
+  zero_motor(vert_up, vert_down, VERT_END_INNER, VERT_END_OUTER);
   serial_received();
 }
 
@@ -412,6 +461,36 @@ void serial_userinteract() {
   serial_received();
 }
 
+/**
+ * @brief Serial command handler for debugging scroll positions. Logs to USB Serial
+ * 
+ */
+void serial_debug_pos() {
+  ssp.readEot();
+  u_int32_t hlt = hor_lastchange;
+  u_int32_t vlt = vert_lastchange;
+  Serial.printf("Scroll positions (last change): H=%d (%d), V=%d (%d) \n", hor_pos, hlt, vert_pos, vlt);
+  serial_received();
+}
+
+/**
+ * @brief Serial command handler for debugging sensors. Logs to USB Serial
+ * 
+ */
+void serial_debug_sens() {
+  ssp.readEot();
+  Serial.printf("VERT_END_OUTER = %d \nVERT_END_INNER = %d \nVERT_CNT_OUTER = %d \nVERT_CNT_INNER = %d \nHORZ_END_OUTER = %d \nHORZ_END_INNER = %d \nHORZ_CNT_INNER = %d \nHORZ_CNT_OUTER = %d \n",
+        digitalRead(VERT_END_OUTER),
+        digitalRead(VERT_END_INNER),
+        digitalRead(VERT_CNT_OUTER),
+        digitalRead(VERT_CNT_INNER),
+        digitalRead(HORZ_END_OUTER),
+        digitalRead(HORZ_END_INNER),
+        digitalRead(HORZ_CNT_INNER),
+        digitalRead(HORZ_CNT_OUTER));
+  serial_received();
+}
+
 void setup() {
   Serial.begin(115200);
   Serial1.begin(115200);
@@ -421,6 +500,8 @@ void setup() {
 
   hor_pos = 0;
   vert_pos = 0;
+  hor_lastchange = 0;
+  vert_lastchange = 0;
 
   blink_time = 0;
 
@@ -438,11 +519,19 @@ void setup() {
   pinMode(HORZ_CNT_OUTER, INPUT);
   pinMode(VERT_CNT_INNER, INPUT);
   pinMode(VERT_CNT_OUTER, INPUT);
+  pinMode(HORZ_END_INNER, INPUT);
+  pinMode(HORZ_END_OUTER, INPUT);
+  pinMode(VERT_END_INNER, INPUT);
+  pinMode(VERT_END_OUTER, INPUT);
 
   digitalWrite(HORZ_CNT_INNER, LOW);
   digitalWrite(HORZ_CNT_OUTER, LOW);
   digitalWrite(VERT_CNT_INNER, LOW);
   digitalWrite(VERT_CNT_OUTER, LOW);
+  digitalWrite(HORZ_END_INNER, LOW);
+  digitalWrite(HORZ_END_OUTER, LOW);
+  digitalWrite(VERT_END_INNER, LOW);
+  digitalWrite(VERT_END_OUTER, LOW);
 
   led_back.begin();
   led_back.show();
@@ -459,6 +548,8 @@ void setup() {
   ssp.registerCommand(MOTOR_V, serial_motor_v);
   ssp.registerCommand(RECORD, serial_record);
   ssp.registerCommand(REWIND, serial_rewind);
+  ssp.registerCommand(DEBUG_SCROLL, serial_debug_pos);
+  ssp.registerCommand(DEBUG_SENSORS, serial_debug_sens);
   ssp.registerCommand(USER_INTERACT, serial_userinteract);
 
   S00->addTransition(transition_post_zero, S10);
@@ -470,7 +561,6 @@ void setup() {
 void loop() {
   // Just run the state machine
   sm.run();
-  // blink_builtin(WAIT_ON_MS, WAIT_OFF_MS);
 }
 
 /**
@@ -502,9 +592,7 @@ void state_zero() {
 void state_init_callbacks() {
   Serial.println("State Initialize Callbacks.");
   attachInterrupt(digitalPinToInterrupt(HORZ_CNT_INNER), hor_count, CHANGE);
-  // attachInterrupt(digitalPinToInterrupt(HORZ_CNT_OUTER), hor_count, CHANGE);
   attachInterrupt(digitalPinToInterrupt(VERT_CNT_INNER), vert_count, CHANGE);
-  // attachInterrupt(digitalPinToInterrupt(VERT_CNT_OUTER), vert_count, CHANGE);
 }
 
 /**

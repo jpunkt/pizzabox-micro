@@ -19,6 +19,10 @@ enum Command {
   
   RECORD = 'C',
   REWIND = 'R',
+
+  DEBUG_SCROLL = 'S',
+  DEBUG_SENSORS = 'Z',
+
   EOT = '\n'
 };
 
