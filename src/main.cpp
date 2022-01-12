@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <Bounce2.h>
 #include <Adafruit_NeoPixel.h>
 #include <SimpleSerialProtocol.h>
 #include <StateMachine.h>
@@ -9,19 +10,19 @@
 /*-------- Pin definitions --------*/
 
 // Vertical motor top
-#define VERT_UP_PWM   3
-#define VERT_UP_AIN2  4
-#define VERT_UP_AIN1  5
+#define VERT_UP_PWM      3
+#define VERT_UP_AIN2     4
+#define VERT_UP_AIN1     5
 
 // Vertical motor bottom
-#define VERT_DOWN_PWM   9
-#define VERT_DOWN_AIN2  7
-#define VERT_DOWN_AIN1  8
+#define VERT_DOWN_PWM    9
+#define VERT_DOWN_AIN2   7
+#define VERT_DOWN_AIN1   8
 
 // Horizontal motor left
-#define HORZ_LEFT_PWM  24
-#define HORZ_LEFT_AIN2 25
-#define HORZ_LEFT_AIN1 26
+#define HORZ_LEFT_PWM   24
+#define HORZ_LEFT_AIN2  25
+#define HORZ_LEFT_AIN1  26
 
 // Horizontal motor right
 #define HORZ_RIGHT_PWM  29
@@ -41,11 +42,21 @@
 #define HORZ_CNT_OUTER  35
 
 // Lights
-#define LED_FRONT 41
+#define LED_FRONT       41
 #define LED_COUNT_FRONT 26
 
-#define LED_BACK  14
-#define LED_COUNT_BACK 72
+#define LED_BACK        14
+#define LED_COUNT_BACK  72
+
+// Buttons
+#define BTN_LED_BLUE    21
+#define BTN_BLUE        20
+#define BTN_LED_RED     17
+#define BTN_RED         16
+#define BTN_LED_GREEN   23
+#define BTN_GREEN       22
+#define BTN_LED_YELLOW  19
+#define BTN_YELLOW      18
 
 /*-------- Constants --------*/
 
@@ -79,15 +90,16 @@ State* S40 = sm.addState(&state_serial_com);
 State* SER = sm.addState(&state_error);
 
 // Heartbeat blink interval constants
-#define WAIT_ON_MS 200      // Blink when waiting for Serial
-#define WAIT_OFF_MS 1800
+#define WAIT_ON_MS    200      // Blink when waiting for Serial
+#define WAIT_OFF_MS  1800
 
-#define ERROR_ON_MS 1000    // Blink when in error state
-#define ERROR_OFF_MS 500
+#define ERROR_ON_MS  1000      // Blink when in error state
+#define ERROR_OFF_MS  500
 
 /*-------- Variables --------*/
 // Heartbeat blinker timer
 elapsedMillis blink_time;
+bool blink_status;             // boolean to hold led status (needed to let more than one led blink)
 
 // Statemachine booleans
 bool handshake_complete;
@@ -110,6 +122,12 @@ Motor horz_right(HORZ_RIGHT_PWM, HORZ_RIGHT_AIN1, HORZ_RIGHT_AIN2);
 // LEDs
 Adafruit_NeoPixel led_front(LED_COUNT_FRONT, LED_FRONT, NEO_GBRW + NEO_KHZ800);
 Adafruit_NeoPixel led_back(LED_COUNT_BACK, LED_BACK, NEO_GBRW + NEO_KHZ800);
+
+// Buttons
+Bounce2::Button btn_blue   = Bounce2::Button();
+Bounce2::Button btn_red    = Bounce2::Button();
+Bounce2::Button btn_yellow = Bounce2::Button();
+Bounce2::Button btn_green  = Bounce2::Button();
 
 /*-------- Serial Communication --------*/
 // Error handler
@@ -169,15 +187,20 @@ void vert_count() {
  * @param on_interval  time LED stays on in millis 
  * @param off_interval time LED is off in millis
  */
-void blink_builtin(uint32_t on_interval, uint32_t off_interval) {
-  if (digitalRead(LED_BUILTIN)) {
+template <size_t N>
+void blink(int (&led_pin)[N], uint32_t on_interval, uint32_t off_interval) {
+  if (blink_status) {
     if (blink_time >= on_interval) {
-      digitalWrite(LED_BUILTIN, LOW);
+      blink_status = false;
+      for (const int &led : led_pin)
+        digitalWrite(led, LOW);
       blink_time = blink_time - on_interval;
     }
   } else {
     if (blink_time >= off_interval) {
-      digitalWrite(LED_BUILTIN, HIGH);
+      blink_status = true;
+      for (const int &led : led_pin) 
+        digitalWrite(led, HIGH);
       blink_time = blink_time - off_interval;
     }
   }
@@ -249,6 +272,12 @@ void serial_received() {
   ssp.writeEot();
 }
 
+void serial_received(uint8_t response) {
+  ssp.writeCommand(RECEIVED);
+  ssp.writeUnsignedInt8(response);
+  ssp.writeEot();
+}
+
 /**
  * @brief Helper function to calculate transition between two colors
  * 
@@ -290,11 +319,10 @@ void serial_led_fade(Adafruit_NeoPixel &led) {
 
   Serial.printf("r = %i, g = %i, b = %i, w = %i \n", from_R, from_G, from_B, from_W);
 
-  uint32_t start_time = millis();
-  uint32_t end_time = start_time + time_ms;
+  elapsedMillis t = 0;
 
-  while (millis() < end_time) {
-    float_t perc = (float) (millis() - start_time) / (float) time_ms;
+  while (t < time_ms) {
+    float_t perc = (float) t / (float) time_ms;
     uint32_t color = led.Color(color_value(from_R, to_R, perc),
                                color_value(from_G, to_G, perc),
                                color_value(from_B, to_B, perc),
@@ -435,8 +463,30 @@ void serial_motor_h() {
  * 
  */
 void serial_record() {
+  uint32_t timeout = ssp.readUnsignedInt32();
   ssp.readEot();
-  Serial.println("Received RECORD");
+  Serial.printf("Received RECORD, timeout %d\n", timeout);
+
+  elapsedMillis time = 0;
+
+  // TODO reset leds
+  digitalWrite(LED_BUILTIN, HIGH);
+  blink_status = true;
+
+  while (time < timeout) {
+    // do nothing until t - 5s
+    btn_red.update();
+
+    if (btn_red.isPressed())
+      break;
+    
+    if ((timeout - time) < 5000) {
+      int leds[] = { LED_BUILTIN };
+      blink(leds, 500, 500);
+    }
+  }
+  digitalWrite(LED_BUILTIN, LOW);
+  
   serial_received();
 }
 
@@ -448,6 +498,7 @@ void serial_rewind() {
   ssp.readEot();
   Serial.println("Received REWIND");
   zero_motor(vert_up, vert_down, VERT_END_INNER, VERT_END_OUTER);
+  // TODO enable zero_motor(hor_left, hor_right, HOR_END_OUTER, HOR_END_INTER);
   serial_received();
 }
 
@@ -456,9 +507,49 @@ void serial_rewind() {
  * 
  */
 void serial_userinteract() {
+  char bt = ssp.readByte();
+  uint32_t timeout = ssp.readUnsignedInt32();
   ssp.readEot();
   Serial.println("Received USER_INTERACT");
-  serial_received();
+  
+  u_int8_t blue = (bt & 0x1);
+  u_int8_t red = (bt & 0x2) >> 1;
+  u_int8_t yellow = (bt & 0x4) >> 2;
+  u_int8_t green = (bt & 0x8) >> 3;
+
+  Serial.printf("Blink byte: B=%d, R=%d, Y=%d, G=%d; Timeout=%d\n", blue, red, yellow, green, timeout);
+  elapsedMillis t = 0;
+  const u_int8_t n_leds = blue + red + yellow + green;
+  int leds[n_leds];
+  
+  // TODO add leds
+  // for (int i = 0; i < n_leds; i++) {
+  //   leds[i] = 
+  // }
+  // {LED_BUILTIN, BTN_LED_BLUE, BTN_LED_RED, BTN_LED_YELLOW, BTN_LED_GREEN};
+  // for (const int &led : leds) {
+  //   digitalWrite(led, LOW);
+  // }
+  
+  uint8_t btn_pressed = 0;
+  while (t < timeout)
+  {
+    // blink(leds, 500, 500);
+    // TODO use bitmask
+    btn_blue.update();
+    btn_red.update();
+    btn_yellow.update();
+    btn_green.update();
+
+    btn_pressed = (blue && btn_blue.pressed() ? 0x1 : 0) |
+                  (red && btn_red.pressed() ? 0x2 : 0) |
+                  (yellow && btn_yellow.pressed() ? 0x4 : 0) |
+                  (green && btn_green.pressed() ? 0x8 : 0);
+    
+    if (btn_pressed > 0) break;
+  }
+  
+  serial_received(btn_pressed);
 }
 
 /**
@@ -498,12 +589,28 @@ void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(LED_BUILTIN, LOW);
 
+  btn_blue.attach(BTN_BLUE, INPUT_PULLUP);
+  btn_red.attach(BTN_RED, INPUT_PULLUP);
+  btn_yellow.attach(BTN_YELLOW, INPUT_PULLUP);
+  btn_green.attach(BTN_GREEN, INPUT_PULLUP);
+
+  btn_blue.interval(5);
+  btn_red.interval(5);
+  btn_yellow.interval(5);
+  btn_green.interval(5);
+
+  btn_blue.setPressedState(LOW);
+  btn_red.setPressedState(LOW);
+  btn_yellow.setPressedState(LOW);
+  btn_green.setPressedState(LOW);
+
   hor_pos = 0;
   vert_pos = 0;
   hor_lastchange = 0;
   vert_lastchange = 0;
 
   blink_time = 0;
+  blink_status = false;
 
   vert_up.setup();
   vert_down.setup();
@@ -606,9 +713,11 @@ void state_wait_serial() {
 
     Serial.println("State Waiting for Serial Handshake.");
     digitalWrite(LED_BUILTIN, LOW);
+    blink_status = false;      
   }
 
-  blink_builtin(WAIT_ON_MS, WAIT_OFF_MS);
+  int leds[] = {LED_BUILTIN};
+  blink(leds, WAIT_ON_MS, WAIT_OFF_MS);
   ssp.loop();
 }
 
@@ -632,9 +741,11 @@ void state_serial_com() {
 void state_error() {
   if (sm.executeOnce) {
     Serial.println("State Error.");
+    blink_status = digitalRead(LED_BUILTIN);  
   }
 
-  blink_builtin(ERROR_ON_MS, ERROR_OFF_MS);
+  int leds[] = { LED_BUILTIN };
+  blink(leds, ERROR_ON_MS, ERROR_OFF_MS);
 }
 
 /**
