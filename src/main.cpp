@@ -3,81 +3,10 @@
 #include <Adafruit_NeoPixel.h>
 #include <SimpleSerialProtocol.h>
 #include <StateMachine.h>
+#include "Config.h"
 #include "Commands.h"
+#include "States.h"
 #include "Motor.h"
-// #include "Serial_Comm.h"
-
-/*-------- Pin definitions --------*/
-
-// Vertical motor top
-#define VERT_UP_PWM      3
-#define VERT_UP_AIN2     4
-#define VERT_UP_AIN1     5
-
-// Vertical motor bottom
-#define VERT_DOWN_PWM    9
-#define VERT_DOWN_AIN2   7
-#define VERT_DOWN_AIN1   8
-
-// Horizontal motor left
-#define HORZ_LEFT_PWM   24
-#define HORZ_LEFT_AIN2  25
-#define HORZ_LEFT_AIN1  26
-
-// Horizontal motor right
-#define HORZ_RIGHT_PWM  29
-#define HORZ_RIGHT_AIN2 27
-#define HORZ_RIGHT_AIN1 28
-
-// Vertical sensors
-#define VERT_END_OUTER  40
-#define VERT_END_INNER  39
-#define VERT_CNT_OUTER  38
-#define VERT_CNT_INNER  37
-
-// Horizontal sensors
-#define HORZ_END_OUTER  33
-#define HORZ_END_INNER  34
-#define HORZ_CNT_INNER  36
-#define HORZ_CNT_OUTER  35
-
-// Lights
-#define LED_FRONT       41
-#define LED_COUNT_FRONT 26
-
-#define LED_BACK        14
-#define LED_COUNT_BACK  72
-
-// Buttons
-#define BTN_LED_BLUE    21
-#define BTN_BLUE        20
-#define BTN_LED_RED     17
-#define BTN_RED         16
-#define BTN_LED_GREEN   23
-#define BTN_GREEN       22
-#define BTN_LED_YELLOW  19
-#define BTN_YELLOW      18
-
-/*-------- Constants --------*/
-
-const int ENDSTOP_OVERRIDE = 8500;  // time to ignore endstop when motor starts (x 10 us)
-const int SCROLL_ERROR_MS = 500;    // if sensor values don't change in this time, the scroll has an error
-
-/*-------- State Definitions --------*/
-
-// States - implementations below loop()
-void state_post();
-void state_zero();
-void state_init_callbacks();
-void state_wait_serial();
-void state_serial_com();
-void state_error();
-
-// Transitions - implementations below loop()
-bool transition_post_zero();
-bool transition_zero_init();
-bool transition_init_wait();
-bool transition_wait_sercom();
 
 // Statemachine setup
 StateMachine sm = StateMachine();
@@ -89,14 +18,11 @@ State* S30 = sm.addState(&state_wait_serial);
 State* S40 = sm.addState(&state_serial_com);
 State* SER = sm.addState(&state_error);
 
-// Heartbeat blink interval constants
-#define WAIT_ON_MS    200      // Blink when waiting for Serial
-#define WAIT_OFF_MS  1800
-
-#define ERROR_ON_MS  1000      // Blink when in error state
-#define ERROR_OFF_MS  500
-
 /*-------- Variables --------*/
+// Convenience array of all UI LEDs
+const int UI_LED_PINS[] = {LED_BUILTIN, BTN_LED_BLUE, BTN_LED_RED, BTN_LED_YELLOW, BTN_LED_GREEN};
+#define N_LEDS (sizeof(UI_LED_PINS) / sizeof(UI_LED_PINS[0]))
+
 // Heartbeat blinker timer
 elapsedMillis blink_time;
 bool blink_status;             // boolean to hold led status (needed to let more than one led blink)
@@ -469,23 +395,22 @@ void serial_record() {
 
   elapsedMillis time = 0;
 
-  // TODO reset leds
-  digitalWrite(LED_BUILTIN, HIGH);
+  digitalWrite(BTN_LED_RED, HIGH);
   blink_status = true;
+  int led[] = { BTN_LED_RED };
 
   while (time < timeout) {
-    // do nothing until t - 5s
     btn_red.update();
 
     if (btn_red.isPressed())
       break;
     
-    if ((timeout - time) < 5000) {
-      int leds[] = { LED_BUILTIN };
-      blink(leds, 500, 500);
+    // Blink LED for the last 5 seconds
+    if ((timeout - time) < REC_COUNTDOWN_MS) {
+      blink(led, UI_ON_MS, UI_OFF_MS);
     }
   }
-  digitalWrite(LED_BUILTIN, LOW);
+  digitalWrite(BTN_LED_RED, LOW);
   
   serial_received();
 }
@@ -512,42 +437,56 @@ void serial_userinteract() {
   ssp.readEot();
   Serial.println("Received USER_INTERACT");
   
-  u_int8_t blue = (bt & 0x1);
-  u_int8_t red = (bt & 0x2) >> 1;
-  u_int8_t yellow = (bt & 0x4) >> 2;
-  u_int8_t green = (bt & 0x8) >> 3;
+  int enabled_btns[] = {
+    (bt & 0x1),         // blue button
+    (bt & 0x2) >> 1,    // red button
+    (bt & 0x4) >> 2,    // yellow button
+    (bt & 0x8) >> 3     // green button
+  };
 
-  Serial.printf("Blink byte: B=%d, R=%d, Y=%d, G=%d; Timeout=%d\n", blue, red, yellow, green, timeout);
-  elapsedMillis t = 0;
-  const u_int8_t n_leds = blue + red + yellow + green;
-  int leds[n_leds];
+  // u_int8_t blue = (bt & 0x1);
+  // u_int8_t red = (bt & 0x2) >> 1;
+  // u_int8_t yellow = (bt & 0x4) >> 2;
+  // u_int8_t green = (bt & 0x8) >> 3;
+
+  Serial.printf("Blink byte: B=%d, R=%d, Y=%d, G=%d; Timeout=%d\n", enabled_btns[0], enabled_btns[1], enabled_btns[2], enabled_btns[3], timeout);
   
-  // TODO add leds
-  // for (int i = 0; i < n_leds; i++) {
-  //   leds[i] = 
-  // }
-  // {LED_BUILTIN, BTN_LED_BLUE, BTN_LED_RED, BTN_LED_YELLOW, BTN_LED_GREEN};
-  // for (const int &led : leds) {
-  //   digitalWrite(led, LOW);
-  // }
+  const u_int8_t n_leds = enabled_btns[0] + enabled_btns[1] + enabled_btns[2] + enabled_btns[3];
+  int leds[] = {
+    enabled_btns[0] ? BTN_LED_BLUE : NC_PIN,
+    enabled_btns[1] ? BTN_LED_RED : NC_PIN,
+    enabled_btns[2] ? BTN_LED_YELLOW : NC_PIN,
+    enabled_btns[3] ? BTN_LED_GREEN : NC_PIN
+  };
+  
+  for (const int &led : leds) {
+    digitalWrite(led, LOW);
+  }
+  blink_status = false;
   
   uint8_t btn_pressed = 0;
-  while (t < timeout)
+  elapsedMillis t = 0;
+  while ((timeout == 0) || (t < timeout))
   {
-    // blink(leds, 500, 500);
+    blink(leds, UI_ON_MS, UI_OFF_MS);
     // TODO use bitmask
-    btn_blue.update();
-    btn_red.update();
-    btn_yellow.update();
-    btn_green.update();
+    if (enabled_btns[0]) btn_blue.update();
+    if (enabled_btns[1]) btn_red.update();
+    if (enabled_btns[2]) btn_yellow.update();
+    if (enabled_btns[3]) btn_green.update();
 
-    btn_pressed = (blue && btn_blue.pressed() ? 0x1 : 0) |
-                  (red && btn_red.pressed() ? 0x2 : 0) |
-                  (yellow && btn_yellow.pressed() ? 0x4 : 0) |
-                  (green && btn_green.pressed() ? 0x8 : 0);
+    btn_pressed = (enabled_btns[0] && btn_blue.pressed() ? 0x1 : 0) |
+                  (enabled_btns[1] && btn_red.pressed() ? 0x2 : 0) |
+                  (enabled_btns[2] && btn_yellow.pressed() ? 0x4 : 0) |
+                  (enabled_btns[3] && btn_green.pressed() ? 0x8 : 0);
     
     if (btn_pressed > 0) break;
   }
+
+  for (const int &led : leds) {
+    digitalWrite(led, LOW);
+  }
+  blink_status = false;
   
   serial_received(btn_pressed);
 }
@@ -586,8 +525,11 @@ void setup() {
   Serial.begin(115200);
   Serial1.begin(115200);
 
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);
+  // initialize LEDs
+  for (const int &led : UI_LED_PINS) {
+    pinMode(led, OUTPUT);
+    digitalWrite(led, LOW);
+  }
 
   btn_blue.attach(BTN_BLUE, INPUT_PULLUP);
   btn_red.attach(BTN_RED, INPUT_PULLUP);
@@ -670,42 +612,34 @@ void loop() {
   sm.run();
 }
 
-/**
- * @brief State Power-On-Self-Test
- * 
- */
+
 void state_post() {
   if (sm.executeOnce) {
-    digitalWrite(LED_BUILTIN, HIGH);
+    for (const int &led : UI_LED_PINS) {
+      digitalWrite(led, HIGH);
+      delay(POST_LED_ON_MS);
+      digitalWrite(led, LOW);
+    }
   }
   Serial.println("State POST.");
 }
 
-/**
- * @brief State Zeroing motors
- * 
- */
+
 void state_zero() {
   Serial.println("State Zeroing.");
 
-  // zero_motor(vert_up, vert_down, VERT_END_INNER, VERT_END_OUTER);
-  // zero_motor(horz_left, horz_right, HORZ_END_OUTER, HORZ_END_INNER);  // TODO check this
+  zero_motor(vert_up, vert_down, VERT_END_INNER, VERT_END_OUTER);
+  zero_motor(horz_left, horz_right, HORZ_END_OUTER, HORZ_END_INNER);
 }
 
-/**
- * @brief State Initialize callbacks (for counting)
- * 
- */
+
 void state_init_callbacks() {
   Serial.println("State Initialize Callbacks.");
   attachInterrupt(digitalPinToInterrupt(HORZ_CNT_INNER), hor_count, CHANGE);
   attachInterrupt(digitalPinToInterrupt(VERT_CNT_INNER), vert_count, CHANGE);
 }
 
-/**
- * @brief State wait for serial handshake
- * 
- */
+
 void state_wait_serial() {
   if (sm.executeOnce) {
     serial_connected = false;
@@ -716,15 +650,12 @@ void state_wait_serial() {
     blink_status = false;      
   }
 
-  int leds[] = {LED_BUILTIN};
-  blink(leds, WAIT_ON_MS, WAIT_OFF_MS);
+  int led[] = {LED_BUILTIN};
+  blink(led, WAIT_ON_MS, WAIT_OFF_MS);
   ssp.loop();
 }
 
-/**
- * @brief State accept serial communications
- * 
- */
+
 void state_serial_com() {
   if (sm.executeOnce) {
     digitalWrite(LED_BUILTIN, LOW);
@@ -734,54 +665,33 @@ void state_serial_com() {
   ssp.loop();
 }
 
-/**
- * @brief State an error occurred
- * 
- */
+
 void state_error() {
   if (sm.executeOnce) {
     Serial.println("State Error.");
     blink_status = digitalRead(LED_BUILTIN);  
   }
 
-  int leds[] = { LED_BUILTIN };
-  blink(leds, ERROR_ON_MS, ERROR_OFF_MS);
+  int led[] = { LED_BUILTIN };
+  blink(led, ERROR_ON_MS, ERROR_OFF_MS);
 }
 
-/**
- * @brief Transition POST to zeroing. Always true.
- * 
- * @return true 
- */
+
 bool transition_post_zero() {
   return true;
 }
 
-/**
- * @brief Transition zeroing to callback initialisation. Always true.
- * 
- * @return true 
- */
+
 bool transition_zero_init() {
   return true;
 }
 
-/**
- * @brief Transition callback initialisation to wait for serial handshake. Always true.
- * 
- * @return true 
- */
+
 bool transition_init_wait() {
   return true;
 }
 
-/**
- * @brief Transition serial handshake to serial communication. True when handshake complete.
- * 
- * @return true 
- * @return false 
- */
+
 bool transition_wait_sercom() {
-  // digitalWrite(LED_BUILTIN, LOW);
   return handshake_complete;
 }
