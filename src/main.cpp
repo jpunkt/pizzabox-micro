@@ -156,9 +156,9 @@ void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin) {
       mot1.run(127, false);
     }
     mot1.stop(false);
-    delay(20); // TODO evaluate
+    delay(200);
     mot2.stop(false);
-    delay(10);
+    delay(100);
     mot1.stop(true);
     mot2.stop(true);
   } else if (digitalRead(end_pin)) {
@@ -168,9 +168,9 @@ void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin) {
       mot2.run(55, true);
     }
     mot2.stop(false);
-    delay(20);
+    delay(200);
     mot1.stop(false);
-    delay(10);
+    delay(100);
     mot1.stop(true);
     mot2.stop(true);
   }
@@ -423,7 +423,7 @@ void serial_rewind() {
   ssp.readEot();
   Serial.println("Received REWIND");
   zero_motor(vert_up, vert_down, VERT_END_INNER, VERT_END_OUTER);
-  // TODO enable zero_motor(hor_left, hor_right, HOR_END_OUTER, HOR_END_INTER);
+  zero_motor(horz_left, horz_right, HORZ_END_OUTER, HORZ_END_INNER);
   serial_received();
 }
 
@@ -469,7 +469,7 @@ void serial_userinteract() {
   while ((timeout == 0) || (t < timeout))
   {
     blink(leds, UI_ON_MS, UI_OFF_MS);
-    // TODO use bitmask
+
     if (enabled_btns[0]) btn_blue.update();
     if (enabled_btns[1]) btn_red.update();
     if (enabled_btns[2]) btn_yellow.update();
