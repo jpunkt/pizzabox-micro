@@ -322,31 +322,6 @@ bool stop_scroll(Motor &mot1, Motor &mot2, int outer_pin) {
 }
 
 /**
- * @brief Generic serial command handler to drive scroll to position
- * 
- * @param mot1  Motor in positive direction
- * @param mot2  Motor in negative direction
- * @param pos   position variable
- */
-void serial_motor(Motor &mot1, Motor &mot2, volatile int16_t &pos, int end_pin) {
-  int16_t inc = ssp.readInt16();
-  ssp.readEot();
-
-  int16_t aim = pos + inc;
-  int16_t c = 0;
-  while (!mot_control(mot1, mot2, pos, aim)) {
-    if (c < ENDSTOP_OVERRIDE) {
-      c++;
-    } else {
-      if (stop_scroll(mot1, mot2, end_pin)) {
-        break;
-      }
-    }
-    delayMicroseconds(10);
-  }
-}
-
-/**
  * @brief Serial command handler for handshake (responds to HELLO and ALREADY_CONNECTED)
  * 
  */
@@ -703,8 +678,8 @@ void state_zero() {
 
 void state_init_callbacks() {
   Serial.println("State Initialize Callbacks.");
-  attachInterrupt(digitalPinToInterrupt(HORZ_CNT_INNER), hor_count, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(VERT_CNT_INNER), vert_count, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(scroll_pins[HORIZONTAL][COUNT_INNER]), hor_count, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(scroll_pins[VERTICAL][COUNT_INNER]), vert_count, CHANGE);
 }
 
 
