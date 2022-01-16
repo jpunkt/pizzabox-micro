@@ -31,23 +31,57 @@ bool blink_status;             // boolean to hold led status (needed to let more
 bool handshake_complete;
 
 // Position counters
-volatile int16_t hor_pos;
-volatile int16_t vert_pos;
+volatile int16_t positions[N_SCROLLS] = {};
 
 // Last change on position counters in millis
-elapsedMillis hor_lastchange;
-elapsedMillis vert_lastchange;
+elapsedMillis pos_lastchange[N_SCROLLS] = {};
+
+// Preset scroll values
+int16_t scroll_targets[N_SCROLLS] = {0};
+
+enum Light_Values_Idx {
+  C,
+  T
+};
+
+// Preset light values
+// light_values[n][0] is color as uint32_t
+// light_values[n][1] is fade time
+uint32_t light_values[N_LIGHTS][2] = {
+  {0, 0},
+  {0, 0}
+};
 
 /*-------- Objects --------*/
-// Motors
-Motor vert_up(VERT_UP_PWM, VERT_UP_AIN1, VERT_UP_AIN2);
-Motor vert_down(VERT_DOWN_PWM, VERT_DOWN_AIN1, VERT_DOWN_AIN2);
-Motor horz_left(HORZ_LEFT_PWM, HORZ_LEFT_AIN1, HORZ_LEFT_AIN2);
-Motor horz_right(HORZ_RIGHT_PWM, HORZ_RIGHT_AIN1, HORZ_RIGHT_AIN2);
+// Scrolls
+Motor scrolls[N_SCROLLS][2] = {
+  {
+    Motor(HORZ_LEFT_PWM, HORZ_LEFT_AIN1, HORZ_LEFT_AIN2),
+    Motor(HORZ_RIGHT_PWM, HORZ_RIGHT_AIN1, HORZ_RIGHT_AIN2)
+  },
+  {
+    Motor(VERT_UP_PWM, VERT_UP_AIN1, VERT_UP_AIN2),
+    Motor(VERT_DOWN_PWM, VERT_DOWN_AIN1, VERT_DOWN_AIN2)
+  }
+};
+
+enum Scroll_Pin_Idx {
+  END_COUNT,
+  END_STOP,
+  COUNT_OUTER,
+  COUNT_INNER,
+};
+
+uint8_t scroll_pins[N_SCROLLS][4] = {
+  {HORZ_END_OUTER, HORZ_END_INNER, HORZ_CNT_OUTER, HORZ_CNT_INNER},
+  {VERT_END_INNER, VERT_END_OUTER, VERT_CNT_OUTER, VERT_CNT_INNER}
+};
 
 // LEDs
-Adafruit_NeoPixel led_front(LED_COUNT_FRONT, LED_FRONT, NEO_GBRW + NEO_KHZ800);
-Adafruit_NeoPixel led_back(LED_COUNT_BACK, LED_BACK, NEO_GBRW + NEO_KHZ800);
+Adafruit_NeoPixel lights[N_LIGHTS] = {
+  Adafruit_NeoPixel(LED_COUNT_BACK, LED_BACK, NEO_GBRW + NEO_KHZ800),
+  Adafruit_NeoPixel(LED_COUNT_FRONT, LED_FRONT, NEO_GBRW + NEO_KHZ800)
+};
 
 // Buttons
 Bounce2::Button btn_blue   = Bounce2::Button();
@@ -86,12 +120,12 @@ int32_t count(int pinA, int pinB) {
  * 
  */
 void hor_count() {
-  if (!digitalRead(HORZ_END_OUTER)) {
-    hor_pos -= count(HORZ_CNT_INNER, HORZ_CNT_OUTER);
+  if (!digitalRead(scroll_pins[HORIZONTAL][END_COUNT])) {
+    positions[HORIZONTAL] -= count(scroll_pins[HORIZONTAL][COUNT_INNER], scroll_pins[HORIZONTAL][COUNT_OUTER]);
   } else {
-    hor_pos = 0;
+    positions[HORIZONTAL] = 0;
   }
-  hor_lastchange = 0;
+  pos_lastchange[HORIZONTAL] = 0;
 }
 
 /**
@@ -99,12 +133,12 @@ void hor_count() {
  * 
  */
 void vert_count() {
-  if (!digitalRead(VERT_END_INNER)) {
-    vert_pos -= count(VERT_CNT_INNER, VERT_CNT_OUTER);
+  if (!digitalRead(scroll_pins[VERTICAL][END_COUNT])) {
+    positions[VERTICAL] -= count(scroll_pins[VERTICAL][COUNT_INNER], scroll_pins[VERTICAL][COUNT_OUTER]);
   } else {
-    vert_pos = 0;
+    positions[VERTICAL] = 0;
   }
-  vert_lastchange = 0;
+  pos_lastchange[VERTICAL] = 0;
 }
 
 /**
@@ -176,6 +210,12 @@ void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin) {
   }
 }
 
+void zero_scrolls() {
+  for (int i=0; i < N_SCROLLS; i++) {
+    zero_motor(scrolls[i][0], scrolls[i][1], scroll_pins[i][END_COUNT], scroll_pins[i][END_STOP]);
+  }
+}
+
 /**
  * @brief Serial communication error handler
  * 
@@ -190,7 +230,7 @@ void serial_on_error(uint8_t errno) {
 }
 
 /**
- * @brief Send RECEIVED+EOT bytes over Serial
+ * @brief Send RECEIVED + EOT bytes over Serial
  * 
  */
 void serial_received() {
@@ -198,6 +238,10 @@ void serial_received() {
   ssp.writeEot();
 }
 
+/**
+ * @brief Send RECEIVED + <response byte> + EOT bytes over Serial
+ * 
+ */
 void serial_received(uint8_t response) {
   ssp.writeCommand(RECEIVED);
   ssp.writeUnsignedInt8(response);
@@ -223,44 +267,21 @@ uint8_t color_value(uint8_t col_from, uint8_t col_to, float_t perc) {
 }
 
 /**
- * @brief Generic fade LEDs from one color to another
+ * @brief Helper function to calculate transition between two colors
  * 
- * @param led 
+ * @param col_from 
+ * @param col_to 
+ * @param perc 
+ * @return uint32_t 
  */
-void serial_led_fade(Adafruit_NeoPixel &led) {
-  uint8_t to_R = ssp.readUnsignedInt8();
-  uint8_t to_G = ssp.readUnsignedInt8();
-  uint8_t to_B = ssp.readUnsignedInt8();
-  uint8_t to_W = ssp.readUnsignedInt8();
-  uint32_t time_ms = ssp.readUnsignedInt32();
-  ssp.readEot();
-  Serial.printf("Received BACKLIGHT (%i, %i, %i, %i, %i) \n", to_R, to_G, to_B, to_W, time_ms);
-
-  uint32_t startcol = led.getPixelColor(0);
-  Serial.printf("col = %i \n", startcol);
-  uint8_t from_W = (startcol & 0xff000000) >> 24;
-  uint8_t from_R = (startcol & 0x00ff0000) >> 16;
-  uint8_t from_G = (startcol & 0x0000ff00) >> 8;
-  uint8_t from_B = (startcol & 0x000000ff);
-
-  Serial.printf("r = %i, g = %i, b = %i, w = %i \n", from_R, from_G, from_B, from_W);
-
-  elapsedMillis t = 0;
-
-  while (t < time_ms) {
-    float_t perc = (float) t / (float) time_ms;
-    uint32_t color = led.Color(color_value(from_R, to_R, perc),
-                               color_value(from_G, to_G, perc),
-                               color_value(from_B, to_B, perc),
-                               color_value(from_W, to_W, perc));
-    led.fill(color);
-    led.show();
+uint32_t color_value(uint32_t col_from, uint32_t col_to, float_t perc) {
+  uint32_t result = 0;
+  for (uint8_t i = 0; i < 4; i++) {
+    uint8_t cf = (col_from & (0xff << (i*8))) >> (i*8);
+    uint8_t ct = (col_to & (0xff << (i*8))) >> (i*8);
+    result = result | (color_value(cf, ct, perc) << (i*8));
   }
-
-  led.fill(led.Color(to_R, to_G, to_B, to_W));
-  led.show();
-
-  serial_received();
+  return result;
 }
 
 /**
@@ -290,7 +311,7 @@ bool mot_control(Motor &mot1, Motor &mot2, volatile int16_t &pos, int16_t &aim) 
  * @param mot2 
  * @param outer_pin 
  */
-bool mot_stop(Motor &mot1, Motor &mot2, int outer_pin) {
+bool stop_scroll(Motor &mot1, Motor &mot2, int outer_pin) {
   if (digitalRead(outer_pin)) {
     mot1.stop(true);
     mot2.stop(true);
@@ -317,7 +338,7 @@ void serial_motor(Motor &mot1, Motor &mot2, volatile int16_t &pos, int end_pin) 
     if (c < ENDSTOP_OVERRIDE) {
       c++;
     } else {
-      if (mot_stop(mot1, mot2, end_pin)) {
+      if (stop_scroll(mot1, mot2, end_pin)) {
         break;
       }
     }
@@ -347,40 +368,99 @@ void serial_hello() {
 }
 
 /**
- * @brief Serial command handler for BACKLIGHT
+ * @brief Serial command handler for SET_LIGHT
  * 
  */
-void serial_backlight() {
-  Serial.println("Received BACKLIGHT");
-  serial_led_fade(led_back);
-}
+void serial_set_light() {
+  uint8_t n = ssp.readUnsignedInt8();
 
-/**
- * @brief Serial command handler for FRONTLIGHT
- * 
- */
-void serial_frontlight() {
-  Serial.println("Received FRONTLIGHT");
-  serial_led_fade(led_front);
-}
+  light_values[n][0] = ssp.readUnsignedInt32();  // set color
+  light_values[n][1] = ssp.readUnsignedInt32();  // set fade time
 
-/**
- * @brief Serial command handler for MOTOR_V
- * 
- */
-void serial_motor_v() {
-  Serial.println("Received MOTOR_V");
-  serial_motor(vert_up, vert_down, vert_pos, VERT_END_OUTER);
+  ssp.readEot();
+
+  Serial.printf("Set light[%d] to [%d, %d]\n", n, 
+                light_values[n][0], 
+                light_values[n][1]);
+
   serial_received();
 }
 
 /**
- * @brief Serial command handler for MOTOR_H
+ * @brief Serial command handler for SET_SCROLL
  * 
  */
-void serial_motor_h() {
-  Serial.println("Received MOTOR_H");
-  serial_motor(horz_left, horz_right, hor_pos, HORZ_END_INNER);
+void serial_set_scroll() {
+  uint8_t n = ssp.readUnsignedInt8();
+
+  scroll_targets[n] = positions[n] + ssp.readUnsignedInt16();
+
+  ssp.readEot();
+
+  Serial.printf("Set scroll[%d] to [%d]\n", n, scroll_targets[n]);
+
+  serial_received();
+}
+
+/**
+ * @brief Serial command handler for DO_IT
+ * 
+ */
+void serial_do_it() {
+  ssp.readEot();
+
+  Serial.printf("Received DO_IT \n");
+
+  bool lights_fading = false;
+
+  uint32_t from_colors[N_LIGHTS] = {};
+  for (uint8_t i=0; i < N_LIGHTS; i++) {
+    from_colors[i] = lights[i].getPixelColor(0);
+    lights_fading = lights_fading || (from_colors[i] != light_values[i][C]);
+  }
+
+  bool scrolls_moving = false;
+
+  for (uint8_t i=0; i < N_SCROLLS; i++) {
+    scrolls_moving = scrolls_moving || (positions[i] != scroll_targets[i]);
+  }
+
+  elapsedMillis t = 0;
+
+  while (lights_fading || scrolls_moving) {
+    bool fade = false;
+    for (uint8_t i=0; i < N_LIGHTS; i++) {
+      if (t < light_values[i][T]) {
+        float_t perc = (float) t / (float) light_values[i][T];
+        lights[i].fill(color_value(from_colors[i], light_values[i][C], perc));
+        lights[i].show();
+        fade = fade || true;
+      } else {
+        fade = fade || false;
+      }
+    }
+
+    bool move = false;
+    for (uint8_t i=0; i < N_SCROLLS; i++) {
+      if (!mot_control(scrolls[i][0], scrolls[i][1], positions[i], scroll_targets[i])) {
+        if ((t > ENDSTOP_OVERRIDE) && stop_scroll(scrolls[i][0], scrolls[i][1], scroll_pins[i][END_STOP])) {
+          move = move || false;
+          scroll_targets[i] = positions[i];
+        } else {
+          move = move || true;
+        }
+      }
+    }
+
+    lights_fading = fade;
+    scrolls_moving = move;
+  }
+  
+  for (int i=0; i < N_LIGHTS; i++) {
+    lights[i].fill(light_values[i][C]);
+    lights[i].show();
+  }
+
   serial_received();
 }
 
@@ -422,8 +502,9 @@ void serial_record() {
 void serial_rewind() {
   ssp.readEot();
   Serial.println("Received REWIND");
-  zero_motor(vert_up, vert_down, VERT_END_INNER, VERT_END_OUTER);
-  zero_motor(horz_left, horz_right, HORZ_END_OUTER, HORZ_END_INNER);
+
+  zero_scrolls();
+  
   serial_received();
 }
 
@@ -443,11 +524,6 @@ void serial_userinteract() {
     (bt & 0x4) >> 2,    // yellow button
     (bt & 0x8) >> 3     // green button
   };
-
-  // u_int8_t blue = (bt & 0x1);
-  // u_int8_t red = (bt & 0x2) >> 1;
-  // u_int8_t yellow = (bt & 0x4) >> 2;
-  // u_int8_t green = (bt & 0x8) >> 3;
 
   Serial.printf("Blink byte: B=%d, R=%d, Y=%d, G=%d; Timeout=%d\n", enabled_btns[0], enabled_btns[1], enabled_btns[2], enabled_btns[3], timeout);
   
@@ -497,9 +573,9 @@ void serial_userinteract() {
  */
 void serial_debug_pos() {
   ssp.readEot();
-  u_int32_t hlt = hor_lastchange;
-  u_int32_t vlt = vert_lastchange;
-  Serial.printf("Scroll positions (last change): H=%d (%d), V=%d (%d) \n", hor_pos, hlt, vert_pos, vlt);
+  u_int32_t hlt = pos_lastchange[HORIZONTAL];
+  u_int32_t vlt = pos_lastchange[VERTICAL];
+  Serial.printf("Scroll positions (last change): H=%d (%d), V=%d (%d) \n", positions[HORIZONTAL], hlt, positions[VERTICAL], vlt);
   serial_received();
 }
 
@@ -545,24 +621,19 @@ void setup() {
   btn_red.setPressedState(LOW);
   btn_yellow.setPressedState(LOW);
   btn_green.setPressedState(LOW);
-
-  hor_pos = 0;
-  vert_pos = 0;
-  hor_lastchange = 0;
-  vert_lastchange = 0;
-
+  
   blink_time = 0;
   blink_status = false;
 
-  vert_up.setup();
-  vert_down.setup();
-  vert_up.stop(true);
-  vert_down.stop(true);
-
-  horz_left.setup();
-  horz_right.setup();
-  horz_left.stop(true);
-  horz_right.stop(true);
+  // Initialize motors and scroll positions
+  for (int i=0; i < N_SCROLLS; i++) {
+    for (int j=0; j < 2; j++) {
+      scrolls[i][j].setup();
+      scrolls[i][j].stop(true);
+    }
+    positions[i] = 0;
+    pos_lastchange[i] = 0;
+  }
 
   pinMode(HORZ_CNT_INNER, INPUT);
   pinMode(HORZ_CNT_OUTER, INPUT);
@@ -582,19 +653,17 @@ void setup() {
   digitalWrite(VERT_END_INNER, LOW);
   digitalWrite(VERT_END_OUTER, LOW);
 
-  led_back.begin();
-  led_back.show();
-
-  led_front.begin();
-  led_front.show();
+  for (int i=0; i < N_LIGHTS; i++) {
+    lights[i].begin();
+    lights[i].show();
+  }
 
   ssp.init();
   ssp.registerCommand(HELLO, serial_hello);
   ssp.registerCommand(ALREADY_CONNECTED, serial_hello);
-  ssp.registerCommand(BACKLIGHT, serial_backlight);
-  ssp.registerCommand(FRONTLIGHT, serial_frontlight);
-  ssp.registerCommand(MOTOR_H, serial_motor_h);
-  ssp.registerCommand(MOTOR_V, serial_motor_v);
+  ssp.registerCommand(SET_LIGHT, serial_set_light);
+  ssp.registerCommand(SET_MOVEMENT, serial_set_scroll);
+  ssp.registerCommand(DO_IT, serial_do_it);
   ssp.registerCommand(RECORD, serial_record);
   ssp.registerCommand(REWIND, serial_rewind);
   ssp.registerCommand(DEBUG_SCROLL, serial_debug_pos);
@@ -628,8 +697,7 @@ void state_post() {
 void state_zero() {
   Serial.println("State Zeroing.");
 
-  zero_motor(vert_up, vert_down, VERT_END_INNER, VERT_END_OUTER);
-  zero_motor(horz_left, horz_right, HORZ_END_OUTER, HORZ_END_INNER);
+  zero_scrolls();
 }
 
 

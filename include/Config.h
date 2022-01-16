@@ -54,7 +54,7 @@
 
 /*-------- Constants --------*/
 
-const int ENDSTOP_OVERRIDE = 8500;  // time to ignore endstop when motor starts (x 10 us)
+const int ENDSTOP_OVERRIDE = 85;  // time to ignore endstop when motor starts (x 10 us)
 const int SCROLL_ERROR_MS = 500;    // if sensor values don't change in this time, the scroll has an error
 
 // Blink interval constants
