@@ -1,3 +1,6 @@
+#ifndef MOTOR_H
+#define MOTOR_H
+
 #include <Arduino.h>
 
 class Motor
@@ -13,3 +16,5 @@ public:
   void run(uint8_t speed, bool forward);
   void stop(bool freewheel);
 };
+
+#endif

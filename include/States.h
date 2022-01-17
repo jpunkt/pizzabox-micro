@@ -1,3 +1,6 @@
+#ifndef STATES_H
+#define STATES_H
+
 /*-------- State Definitions --------*/
 
 /**
@@ -72,3 +75,5 @@ bool transition_init_wait();
  * @return false 
  */
 bool transition_wait_sercom();
+
+#endif

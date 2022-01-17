@@ -1,3 +1,6 @@
+#ifndef COMMANDS_H
+#define COMMANDS_H
+
 enum Lights {
   BACKLIGHT = 0,
   FRONTLIGHT = 1
@@ -39,3 +42,5 @@ enum Command {
 typedef enum Command Command;
 typedef enum Scrolls Scrolls;
 typedef enum Lights Lights;
+
+#endif

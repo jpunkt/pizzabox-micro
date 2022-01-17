@@ -1,3 +1,5 @@
+#ifndef CONFIG_H
+#define CONFIG_H
 /*-------- Pin definitions --------*/
 
 // Vertical motor top
@@ -70,3 +72,5 @@ const int SCROLL_ERROR_MS = 500;    // if sensor values don't change in this tim
 
 #define UI_ON_MS          500       // General user interaction blink interval
 #define UI_OFF_MS         500
+
+#endif
