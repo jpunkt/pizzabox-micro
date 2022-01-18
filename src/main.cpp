@@ -20,7 +20,7 @@ State* SER = sm.addState(&state_error);
 
 /*-------- Variables --------*/
 // Convenience array of all UI LEDs
-const int UI_LED_PINS[] = {LED_BUILTIN, BTN_LED_BLUE, BTN_LED_RED, BTN_LED_YELLOW, BTN_LED_GREEN};
+const int UI_LED_PINS[] = {LED_BUILTIN, BTN_LED_BLUE, BTN_LED_RED, BTN_LED_GREEN, BTN_LED_YELLOW};
 #define N_LEDS (sizeof(UI_LED_PINS) / sizeof(UI_LED_PINS[0]))
 
 // Heartbeat blinker timer

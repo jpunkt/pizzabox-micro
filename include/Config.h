@@ -39,17 +39,17 @@
 #define LED_COUNT_FRONT 26
 
 #define LED_BACK        14
-#define LED_COUNT_BACK  72
+#define LED_COUNT_BACK  120
 
 // Buttons
 #define BTN_LED_BLUE    21
 #define BTN_BLUE        20
 #define BTN_LED_RED     17
 #define BTN_RED         16
-#define BTN_LED_GREEN   23
-#define BTN_GREEN       22
-#define BTN_LED_YELLOW  19
-#define BTN_YELLOW      18
+#define BTN_LED_YELLOW  23
+#define BTN_YELLOW      22
+#define BTN_LED_GREEN   19
+#define BTN_GREEN       18
 
 // NC (Blink-Sink)
 #define NC_PIN          11
