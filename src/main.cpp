@@ -36,8 +36,13 @@ volatile int16_t positions[N_SCROLLS] = {};
 // Last change on position counters in millis
 elapsedMillis pos_lastchange[N_SCROLLS] = {};
 
+enum Scroll_Idx{
+  TARGET,
+  SPEED
+};
+
 // Preset scroll values
-int16_t scroll_targets[N_SCROLLS] = {0};
+int16_t scroll_targets[N_SCROLLS][2] = {0};
 
 enum Light_Values_Idx {
   C,
@@ -288,14 +293,17 @@ uint32_t color_value(uint32_t col_from, uint32_t col_to, float_t perc) {
  * @brief Generic motor control (full speed). Call every 10us for good results.
  * 
  */
-bool mot_control(Motor &mot1, Motor &mot2, volatile int16_t &pos, int16_t &aim) {
+bool mot_control(Motor &mot1, Motor &mot2, volatile int16_t &pos, int16_t &aim, int16_t &speed) {
+  uint8_t speed1 = (speed * 64) - 1;
+  uint8_t speed2 = (speed * 32) - 1;
+  
   if (pos < aim) {
-    mot1.run(255, true);
-    mot2.run(127, true);
+    mot1.run(speed1, true);
+    mot2.run(speed2, true);
     return false;
   } else if (pos > aim) {
-    mot2.run(255, false);
-    mot1.run(127, false);
+    mot2.run(speed1, false);
+    mot1.run(speed2, false);
     return false;
   } else {
     mot1.stop(false);
@@ -368,7 +376,8 @@ void serial_set_light() {
 void serial_set_scroll() {
   uint8_t n = ssp.readUnsignedInt8();
 
-  scroll_targets[n] = positions[n] + ssp.readUnsignedInt16();
+  scroll_targets[n][TARGET] = positions[n] + ssp.readUnsignedInt16();
+  scroll_targets[n][SPEED] = ssp.readUnsignedInt8();
 
   ssp.readEot();
 
@@ -397,7 +406,7 @@ void serial_do_it() {
   bool scrolls_moving = false;
 
   for (uint8_t i=0; i < N_SCROLLS; i++) {
-    scrolls_moving = scrolls_moving || (positions[i] != scroll_targets[i]);
+    scrolls_moving = scrolls_moving || (positions[i] != scroll_targets[i][TARGET]);
   }
 
   elapsedMillis t = 0;
@@ -417,10 +426,10 @@ void serial_do_it() {
 
     bool move = false;
     for (uint8_t i=0; i < N_SCROLLS; i++) {
-      if (!mot_control(scrolls[i][0], scrolls[i][1], positions[i], scroll_targets[i])) {
+      if (!mot_control(scrolls[i][0], scrolls[i][1], positions[i], scroll_targets[i][TARGET], scroll_targets[i][SPEED])) {
         if ((t > ENDSTOP_OVERRIDE) && stop_scroll(scrolls[i][0], scrolls[i][1], scroll_pins[i][END_STOP])) {
           move = move || false;
-          scroll_targets[i] = positions[i];
+          scroll_targets[i][TARGET] = positions[i];
         } else {
           move = move || true;
         }
