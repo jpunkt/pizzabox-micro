@@ -22,6 +22,7 @@ enum Command {
   ALREADY_CONNECTED = 1,
   ERROR = 2,
   RECEIVED = 3,
+  ABORT = 99,
 
   SET_MOVEMENT = 'M',
   SET_LIGHT = 'L',

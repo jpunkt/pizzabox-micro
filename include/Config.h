@@ -42,14 +42,18 @@
 #define LED_COUNT_BACK  120
 
 // Buttons
-#define BTN_LED_BLUE    21
-#define BTN_BLUE        20
-#define BTN_LED_RED     17
-#define BTN_RED         16
-#define BTN_LED_YELLOW  23
-#define BTN_YELLOW      22
-#define BTN_LED_GREEN   19
-#define BTN_GREEN       18
+#define BTN_LED_BLUE    23       // 21
+#define BTN_BLUE        22       // 20
+#define BTN_LED_RED     21       // 17
+#define BTN_RED         20       // 16
+#define BTN_LED_YELLOW  17       // 23
+#define BTN_YELLOW      16       // 22
+#define BTN_LED_GREEN   19       // 19
+#define BTN_GREEN       18       // 18
+
+// Handshake pins
+#define PIN_HELO1       10
+#define PIN_HELO2        2
 
 // NC (Blink-Sink)
 #define NC_PIN          11

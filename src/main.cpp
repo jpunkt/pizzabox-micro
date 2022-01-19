@@ -101,12 +101,15 @@ void serial_on_error(uint8_t errorNum);
 // serial handshake was performed
 bool serial_connected;
 
+// serial command ABORT was sent
+volatile bool serial_aborted;
+
 // inintialize hardware constants
 const long BAUDRATE = 115200; // speed of serial connection
 const long CHARACTER_TIMEOUT = 500; // wait max 500 ms between single chars to be received
 
 // Create instance. Pass Serial instance. Define command-id-range within Simple Serial Protocol is listening (here: a - z)
-SimpleSerialProtocol ssp(Serial1, BAUDRATE, CHARACTER_TIMEOUT, serial_on_error, 0, 'Z'); // ASCII: 'a' - 'z' (26 byes of RAM is reserved)
+SimpleSerialProtocol ssp(Serial1, BAUDRATE, CHARACTER_TIMEOUT, serial_on_error, 0, 100);
 
 /**
  * @brief Generic encoder logic for callbacks
@@ -411,7 +414,9 @@ void serial_do_it() {
 
   elapsedMillis t = 0;
 
-  while (lights_fading || scrolls_moving) {
+  while (!serial_aborted && (lights_fading || scrolls_moving)) {
+    ssp.loop();
+
     bool fade = false;
     for (uint8_t i=0; i < N_LIGHTS; i++) {
       if (t < light_values[i][T]) {
@@ -439,10 +444,26 @@ void serial_do_it() {
     lights_fading = fade;
     scrolls_moving = move;
   }
+
+  if (serial_aborted) {
+    Serial.println("Movement aborted");
+    for (uint8_t i=0; i < N_SCROLLS; i++) {
+      scrolls[i][0].stop(true);
+      scrolls[i][1].stop(true);
+    }
+    for (uint8_t i=0; i < N_LIGHTS; i++) {
+      lights[i].fill(0);
+      lights[i].show();
+    }
+    serial_aborted = false;
+    serial_received();
+    return;
+  }
   
   for (int i=0; i < N_LIGHTS; i++) {
     lights[i].fill(light_values[i][C]);
     lights[i].show();
+    light_values[i][T] = 0;
   }
 
   serial_received();
@@ -526,9 +547,10 @@ void serial_userinteract() {
   
   uint8_t btn_pressed = 0;
   elapsedMillis t = 0;
-  while ((timeout == 0) || (t < timeout))
+  while (!serial_aborted && ((timeout == 0) || (t < timeout)))
   {
     blink(leds, UI_ON_MS, UI_OFF_MS);
+    ssp.loop();
 
     if (enabled_btns[0]) btn_blue.update();
     if (enabled_btns[1]) btn_red.update();
@@ -549,6 +571,15 @@ void serial_userinteract() {
   blink_status = false;
   
   serial_received(btn_pressed);
+}
+
+void serial_abort() {
+  ssp.readEot();
+  Serial.println("Received ABORT.");
+
+  serial_aborted = true;
+
+  serial_received();
 }
 
 /**
@@ -584,6 +615,11 @@ void serial_debug_sens() {
 void setup() {
   Serial.begin(115200);
   Serial1.begin(115200);
+
+  pinMode(PIN_HELO1, INPUT);
+  pinMode(PIN_HELO2, OUTPUT);
+
+  digitalWrite(PIN_HELO2, LOW);
 
   // initialize LEDs
   for (const int &led : UI_LED_PINS) {
@@ -645,6 +681,7 @@ void setup() {
   ssp.init();
   ssp.registerCommand(HELLO, serial_hello);
   ssp.registerCommand(ALREADY_CONNECTED, serial_hello);
+  ssp.registerCommand(ABORT, serial_abort);
   ssp.registerCommand(SET_LIGHT, serial_set_light);
   ssp.registerCommand(SET_MOVEMENT, serial_set_scroll);
   ssp.registerCommand(DO_IT, serial_do_it);
@@ -666,38 +703,57 @@ void loop() {
 }
 
 
+void check_helo() {
+  if (handshake_complete && (digitalRead(PIN_HELO1) == LOW)) {
+    sm.transitionTo(SER);
+    Serial.println("Lost HELO1. Transition to error state.");
+  }
+}
+
+
 void state_post() {
   if (sm.executeOnce) {
+    Serial.println("State POST.");
     for (const int &led : UI_LED_PINS) {
       digitalWrite(led, HIGH);
       delay(POST_LED_ON_MS);
       digitalWrite(led, LOW);
     }
   }
-  Serial.println("State POST.");
 }
 
 
 void state_zero() {
-  Serial.println("State Zeroing.");
+  if (sm.executeOnce) {
+    Serial.println("State Zeroing.");
 
-  zero_scrolls();
+    zero_scrolls();
+  }
 }
 
 
 void state_init_callbacks() {
-  Serial.println("State Initialize Callbacks.");
-  attachInterrupt(digitalPinToInterrupt(scroll_pins[HORIZONTAL][COUNT_INNER]), hor_count, CHANGE);
-  attachInterrupt(digitalPinToInterrupt(scroll_pins[VERTICAL][COUNT_INNER]), vert_count, CHANGE);
+  if (sm.executeOnce) {
+    Serial.println("State Initialize Callbacks.");
+
+    attachInterrupt(digitalPinToInterrupt(scroll_pins[HORIZONTAL][COUNT_INNER]), hor_count, CHANGE);
+    attachInterrupt(digitalPinToInterrupt(scroll_pins[VERTICAL][COUNT_INNER]), vert_count, CHANGE);
+    
+    digitalWrite(LED_BUILTIN, LOW);
+    blink_status = false; 
+  }
+
+  int led[] = {LED_BUILTIN};
+  blink(led, WAIT_ON_MS, WAIT_OFF_MS);
 }
 
 
 void state_wait_serial() {
   if (sm.executeOnce) {
+    Serial.println("State Waiting for Serial Handshake.");
     serial_connected = false;
     handshake_complete = false;
 
-    Serial.println("State Waiting for Serial Handshake.");
     digitalWrite(LED_BUILTIN, LOW);
     blink_status = false;      
   }
@@ -715,13 +771,15 @@ void state_serial_com() {
   }
 
   ssp.loop();
+  check_helo();
 }
 
 
 void state_error() {
   if (sm.executeOnce) {
     Serial.println("State Error.");
-    blink_status = digitalRead(LED_BUILTIN);  
+    blink_status = digitalRead(LED_BUILTIN);
+    digitalWrite(PIN_HELO2, LOW);
   }
 
   int led[] = { LED_BUILTIN };
@@ -740,7 +798,11 @@ bool transition_zero_init() {
 
 
 bool transition_init_wait() {
-  return true;
+  if (digitalRead(PIN_HELO1)) {
+    digitalWrite(PIN_HELO2, HIGH);
+    return true;
+  }
+  return false;
 }
 
 
