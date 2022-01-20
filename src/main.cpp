@@ -456,7 +456,6 @@ void serial_do_it() {
       lights[i].show();
     }
     serial_aborted = false;
-    serial_received();
     return;
   }
   
@@ -484,8 +483,9 @@ void serial_record() {
   blink_status = true;
   int led[] = { BTN_LED_RED };
 
-  while (time < timeout) {
+  while (!serial_aborted && (time < timeout)) {
     btn_red.update();
+    ssp.loop();
 
     if (btn_red.isPressed())
       break;
@@ -496,6 +496,11 @@ void serial_record() {
     }
   }
   digitalWrite(BTN_LED_RED, LOW);
+
+  if (serial_aborted) {
+    serial_aborted = false;
+    return;
+  }
   
   serial_received();
 }
@@ -569,6 +574,11 @@ void serial_userinteract() {
     digitalWrite(led, LOW);
   }
   blink_status = false;
+
+  if (serial_aborted) {
+    serial_aborted = false;
+    return;
+  }
   
   serial_received(btn_pressed);
 }
