@@ -33,6 +33,7 @@ enum Command {
   RECORD = 'C',
 
   REWIND = 'R',
+  RESET = 'X',
 
   DEBUG_SCROLL = 'S',
   DEBUG_SENSORS = 'Z',

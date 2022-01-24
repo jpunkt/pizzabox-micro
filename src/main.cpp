@@ -30,6 +30,9 @@ bool blink_status;             // boolean to hold led status (needed to let more
 // Statemachine booleans
 bool handshake_complete;
 
+// Expect HELO1 to go LOW for reset
+bool reset_expected;
+
 // Position counters
 volatile int16_t positions[N_SCROLLS] = {};
 
@@ -592,6 +595,15 @@ void serial_abort() {
   serial_received();
 }
 
+void serial_reset() {
+  ssp.readEot();
+  Serial.println("Received RESET.");
+
+  reset_expected = true;
+
+  serial_received();
+}
+
 /**
  * @brief Serial command handler for debugging scroll positions. Logs to USB Serial
  * 
@@ -700,6 +712,7 @@ void setup() {
   ssp.registerCommand(DEBUG_SCROLL, serial_debug_pos);
   ssp.registerCommand(DEBUG_SENSORS, serial_debug_sens);
   ssp.registerCommand(USER_INTERACT, serial_userinteract);
+  ssp.registerCommand(RESET, serial_reset);
 
   S00->addTransition(transition_post_zero, S10);
   S10->addTransition(transition_zero_init, S20);
@@ -715,8 +728,26 @@ void loop() {
 
 void check_helo() {
   if (handshake_complete && (digitalRead(PIN_HELO1) == LOW)) {
-    sm.transitionTo(SER);
-    Serial.println("Lost HELO1. Transition to error state.");
+    if (reset_expected) {
+      // Expected PIN_HELO1 to go low. Transition to state wait for serial
+      sm.transitionTo(S30);
+      reset_expected = false;
+      Serial.println("Raspi sent reset. Transition to wait for serial");
+    } else {
+      // Unexpected connection interrupt. Transition to state Error
+      sm.transitionTo(SER);
+      Serial.println("Lost HELO1. Transition to error state.");
+    }
+
+    for (int i=0; i < N_LIGHTS; i++) {
+      light_values[i][C] = 0;
+      light_values[i][T] = 0;
+    }
+
+    for (int i=0; i < N_SCROLLS; i++) {
+      scroll_targets[i][TARGET] = 0;
+      scroll_targets[i][SPEED] = 0;
+    }
   }
 }
 
