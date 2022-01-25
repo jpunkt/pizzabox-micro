@@ -7,6 +7,7 @@
 #include "Commands.h"
 #include "States.h"
 #include "Motor.h"
+#include "ColorHelpers.h"
 
 // Statemachine setup
 StateMachine sm = StateMachine();
@@ -22,10 +23,6 @@ State* SER = sm.addState(&state_error);
 // Convenience array of all UI LEDs
 const int UI_LED_PINS[] = {LED_BUILTIN, BTN_LED_BLUE, BTN_LED_RED, BTN_LED_GREEN, BTN_LED_YELLOW};
 #define N_LEDS (sizeof(UI_LED_PINS) / sizeof(UI_LED_PINS[0]))
-
-// Heartbeat blinker timer
-elapsedMillis blink_time;
-bool blink_status;             // boolean to hold led status (needed to let more than one led blink)
 
 // Statemachine booleans
 bool handshake_complete;
@@ -114,6 +111,36 @@ const long CHARACTER_TIMEOUT = 500; // wait max 500 ms between single chars to b
 // Create instance. Pass Serial instance. Define command-id-range within Simple Serial Protocol is listening (here: a - z)
 SimpleSerialProtocol ssp(Serial1, BAUDRATE, CHARACTER_TIMEOUT, serial_on_error, 0, 100);
 
+// Heartbeat blinker timer
+elapsedMillis blink_time;
+bool blink_status;             // boolean to hold led status (needed to let more than one led blink)
+
+/**
+ * @brief Blink the internal LED with defined on- and off- times. Call in loop to blink.
+ * 
+ * @param on_interval  time LED stays on in millis 
+ * @param off_interval time LED is off in millis
+ */
+template <size_t N>
+void blink(int (&led_pin)[N], uint32_t on_interval, uint32_t off_interval) {
+  if (blink_status) {
+    if (blink_time >= on_interval) {
+      blink_status = false;
+      for (const int &led : led_pin)
+        digitalWrite(led, LOW);
+      blink_time = blink_time - on_interval;
+    }
+  } else {
+    if (blink_time >= off_interval) {
+      blink_status = true;
+      for (const int &led : led_pin) 
+        digitalWrite(led, HIGH);
+      blink_time = blink_time - off_interval;
+    }
+  }
+}
+
+
 /**
  * @brief Generic encoder logic for callbacks
  * 
@@ -150,31 +177,6 @@ void vert_count() {
     positions[VERTICAL] = 0;
   }
   pos_lastchange[VERTICAL] = 0;
-}
-
-/**
- * @brief Blink the internal LED with defined on- and off- times. Call in loop to blink.
- * 
- * @param on_interval  time LED stays on in millis 
- * @param off_interval time LED is off in millis
- */
-template <size_t N>
-void blink(int (&led_pin)[N], uint32_t on_interval, uint32_t off_interval) {
-  if (blink_status) {
-    if (blink_time >= on_interval) {
-      blink_status = false;
-      for (const int &led : led_pin)
-        digitalWrite(led, LOW);
-      blink_time = blink_time - on_interval;
-    }
-  } else {
-    if (blink_time >= off_interval) {
-      blink_status = true;
-      for (const int &led : led_pin) 
-        digitalWrite(led, HIGH);
-      blink_time = blink_time - off_interval;
-    }
-  }
 }
 
 /**
@@ -260,43 +262,7 @@ void serial_received(uint8_t response) {
 }
 
 /**
- * @brief Helper function to calculate transition between two colors
- * 
- * @param col_from  8bit color value start
- * @param col_to    8bit color value end 
- * @param perc      percentage in float
- * @return uint8_t  8bit color value at percentage of transition
- */
-uint8_t color_value(uint8_t col_from, uint8_t col_to, float_t perc) {
-  float_t col;
-  if (col_from < col_to) {
-    col = col_from + (float) (col_to - col_from) * perc;
-  } else {
-    col = col_from - (float) (col_from - col_to) * perc;
-  }
-  return (uint8_t) (col + 0.5);
-}
-
-/**
- * @brief Helper function to calculate transition between two colors
- * 
- * @param col_from 
- * @param col_to 
- * @param perc 
- * @return uint32_t 
- */
-uint32_t color_value(uint32_t col_from, uint32_t col_to, float_t perc) {
-  uint32_t result = 0;
-  for (uint8_t i = 0; i < 4; i++) {
-    uint8_t cf = (col_from & (0xff << (i*8))) >> (i*8);
-    uint8_t ct = (col_to & (0xff << (i*8))) >> (i*8);
-    result = result | (color_value(cf, ct, perc) << (i*8));
-  }
-  return result;
-}
-
-/**
- * @brief Generic motor control (full speed). Call every 10us for good results.
+ * @brief Generic motor control (4 speeds, range 1..4). Call every 10us for good results.
  * 
  */
 bool mot_control(Motor &mot1, Motor &mot2, volatile int16_t &pos, int16_t &aim, int16_t &speed) {
@@ -540,7 +506,6 @@ void serial_userinteract() {
 
   Serial.printf("Blink byte: B=%d, R=%d, Y=%d, G=%d; Timeout=%d\n", enabled_btns[0], enabled_btns[1], enabled_btns[2], enabled_btns[3], timeout);
   
-  const u_int8_t n_leds = enabled_btns[0] + enabled_btns[1] + enabled_btns[2] + enabled_btns[3];
   int leds[] = {
     enabled_btns[0] ? BTN_LED_BLUE : NC_PIN,
     enabled_btns[1] ? BTN_LED_RED : NC_PIN,
