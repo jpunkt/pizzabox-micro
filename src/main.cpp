@@ -733,7 +733,9 @@ void state_zero() {
   if (sm.executeOnce) {
     Serial.println("State Zeroing.");
 
-    zero_scrolls();
+    if (btn_red.isPressed()) {
+      zero_scrolls();
+    }
   }
 }
 

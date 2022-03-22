@@ -6,7 +6,7 @@
 #define LED_COUNT_FRONT 26
 
 #define LED_BACK  14
-#define LED_COUNT_BACK 72
+#define LED_COUNT_BACK 120
 
 Adafruit_NeoPixel led_front(LED_COUNT_FRONT, LED_FRONT, NEO_GBRW + NEO_KHZ800);
 Adafruit_NeoPixel led_back(LED_COUNT_BACK, LED_BACK, NEO_GBRW + NEO_KHZ800);
@@ -17,7 +17,11 @@ int led_n;
 u_int8_t brightness;
 u_int8_t color;
 
-void led_loop() {
+void setup() {
+  
+}
+
+void loop() {
   // LED test loop, for reference..
 
   uint32_t c = led_back.Color((color == 0 || color == 1 || color == 2 || color == 9) ? brightness : 0,
