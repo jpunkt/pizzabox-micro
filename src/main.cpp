@@ -456,7 +456,7 @@ void serial_record() {
     btn_red.update();
     ssp.loop();
 
-    if (btn_red.isPressed())
+    if (btn_red.pressed())
       break;
     
     // Blink LED for the last 5 seconds
@@ -683,6 +683,8 @@ void setup() {
   S10->addTransition(transition_zero_init, S20);
   S20->addTransition(transition_init_wait, S30);
   S30->addTransition(transition_wait_sercom, S40);
+
+  serial_aborted = false;
 }
 
 void loop() {
