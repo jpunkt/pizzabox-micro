@@ -10,7 +10,7 @@
 #include "ColorHelpers.h"
 
 /*-------- Constants --------*/
-const int MOTOR_TIMEOUT = 1000;    // Timeout for zeroing in millis
+const int MOTOR_TIMEOUT = 15000;    // Timeout for zeroing in millis   TODO Set to something meaningful
 
 // Statemachine setup
 StateMachine sm = StateMachine();
@@ -34,7 +34,7 @@ bool handshake_complete;
 bool reset_expected;
 
 // Position counters
-volatile int16_t positions[N_SCROLLS] = {};
+// volatile int16_t positions[N_SCROLLS] = {};
 
 // Last change on position counters in millis
 elapsedMillis pos_lastchange[N_SCROLLS] = {};
@@ -74,8 +74,8 @@ Motor scrolls[N_SCROLLS][2] = {
 };
 
 enum Scroll_Pin_Idx {
-  END_COUNT,
-  END_STOP,
+  END_OUTER,
+  END_INNER,
   COUNT_OUTER,
   COUNT_INNER,
 };
@@ -151,15 +151,18 @@ void blink(int (&led_pin)[N], uint32_t on_interval, uint32_t off_interval) {
  * @param pinB 
  * @return int32_t 
  */
+/*
 int32_t count(int pinA, int pinB) {
   if (digitalRead(pinA)) return digitalRead(pinB) ? -1 : 1;
   else return digitalRead(pinB) ? 1 : -1;
 }
+*/
 
 /**
  * @brief Callback for horizontal counting
  * 
  */
+/*
 void hor_count() {
   if (!digitalRead(scroll_pins[HORIZONTAL][END_COUNT])) {
     positions[HORIZONTAL] -= count(scroll_pins[HORIZONTAL][COUNT_INNER], scroll_pins[HORIZONTAL][COUNT_OUTER]);
@@ -168,11 +171,13 @@ void hor_count() {
   }
   pos_lastchange[HORIZONTAL] = 0;
 }
+*/
 
 /**
  * @brief Callback for vertical counting
  * 
  */
+/*
 void vert_count() {
   if (!digitalRead(scroll_pins[VERTICAL][END_COUNT])) {
     positions[VERTICAL] -= count(scroll_pins[VERTICAL][COUNT_INNER], scroll_pins[VERTICAL][COUNT_OUTER]);
@@ -181,6 +186,7 @@ void vert_count() {
   }
   pos_lastchange[VERTICAL] = 0;
 }
+*/
 
 /**
  * @brief Generic scroll zeroing code
@@ -234,7 +240,7 @@ void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin) {
 
 void zero_scrolls() {
   for (int i=0; i < N_SCROLLS; i++) {
-    zero_motor(scrolls[i][0], scrolls[i][1], scroll_pins[i][END_COUNT], scroll_pins[i][END_STOP]);
+    zero_motor(scrolls[i][0], scrolls[i][1], scroll_pins[i][END_OUTER], scroll_pins[i][END_INNER]);
   }
 }
 
@@ -274,6 +280,7 @@ void serial_received(uint8_t response) {
  * @brief Generic motor control (4 speeds, range 1..4). Call every 10us for good results.
  * 
  */
+/*
 bool mot_control(Motor &mot1, Motor &mot2, volatile int16_t &pos, int16_t &aim, int16_t &speed) {
   uint8_t speed1 = (speed * 64) - 1;
   uint8_t speed2 = (speed * 32) - 1;
@@ -292,22 +299,79 @@ bool mot_control(Motor &mot1, Motor &mot2, volatile int16_t &pos, int16_t &aim, 
     return true;
   }
 }
+*/
 
 /**
- * @brief Generic check endstop and stop motor
+ * @brief Generic stop motors
  * 
  * @param mot1 
  * @param mot2 
- * @param outer_pin 
  */
-bool stop_scroll(Motor &mot1, Motor &mot2, int outer_pin) {
-  if (digitalRead(outer_pin)) {
-    mot1.stop(true);
-    mot2.stop(true);
-    Serial.printf("Motor stopped. \n");
-    return true;
+void stop_scroll(Motor &mot1, Motor &mot2) {
+  mot1.stop(true);
+  mot2.stop(true);
+  Serial.printf("Motor stopped. \n");
+}
+
+/**
+ * @brief Run motors in appropriate direction until picture stop is reached
+ * 
+ * outer_state | inner_state | outer_stop | inner_stop | direction | startup | MOTORS 
+ *         1/0 |         1/0 |        1/0 |        1/0 |       1/0 |       1 | run fullspeed in direction
+ *           1 |           0 |          0 |          0 |         1 |       0 | run fullspeed forwards
+ *           0 |           1 |          0 |          0 |         1 |       0 | run halfspeed forwards
+ *           0 |           1 |          0 |          0 |         0 |       0 | run fullspeed backwards
+ *           1 |           0 |          0 |          0 |         0 |       0 | run halfspeed backwards
+ *           1 |           1 |          0 |          0 |       1/0 |       0 | stop
+ *           0 |           0 |          1 |          0 |           |       0 |
+ *             |             |            |            |           |       0 |
+ *             |             |            |            |           |       0 |
+ *             |             |            | 
+ * 
+ * @param mot1 
+ * @param mot2 
+ * @param pins      Array of sensor pins for the scroll 
+ * @param direction 
+ * @param speed 
+ * @param startup   True if elapsed time is shorter than OVERRIDE_ENDSTOPS
+ * @return true  when motors are still running
+ * @return false if motors stopped
+ */
+bool mot_advance(Motor &mot1, Motor &mot2, 
+                 uint8_t pins[],
+                 bool direction, int16_t speed, bool startup) {
+  uint8_t speed1 = (speed * 64) - 1;
+  uint8_t speed2 = (speed * 32) - 1;
+
+  bool outer_state = digitalRead(pins[COUNT_OUTER]);
+  bool inner_state = digitalRead(pins[COUNT_INNER]);
+  bool outer_stop = digitalRead(pins[END_OUTER]);
+  bool inner_stop = digitalRead(pins[END_INNER]);
+
+  if (!startup) {
+    if ((direction && inner_stop) || (!direction && outer_stop)) {
+      stop_scroll(mot1, mot2);
+      return false;
+    }
+    if (outer_state && inner_state) {
+      stop_scroll(mot1, mot2);
+      return false;
+    }
+  } else {
+    if ((direction && inner_state) || (!direction && outer_state)) {
+      mot1.run(speed2, direction);
+      mot2.run(speed2, direction);
+    } else {
+      if (direction) {
+        mot1.run(speed1, direction);
+        mot2.run(speed2, direction);
+      } else {
+        mot1.run(speed2, direction);
+        mot2.run(speed1, direction);
+      }
+    }
   }
-  return false;
+  return true;
 }
 
 /**
@@ -357,12 +421,12 @@ void serial_set_light() {
 void serial_set_scroll() {
   uint8_t n = ssp.readUnsignedInt8();
 
-  scroll_targets[n][TARGET] = positions[n] + ssp.readUnsignedInt16();
+  scroll_targets[n][TARGET] = ssp.readInt16();
   scroll_targets[n][SPEED] = ssp.readUnsignedInt8();
 
   ssp.readEot();
 
-  Serial.printf("Set scroll[%d] to [%d]\n", n, scroll_targets[n]);
+  Serial.printf("Set scroll[%d] to target %d at speed %d \n", n, scroll_targets[n][TARGET], scroll_targets[n][SPEED]);
 
   serial_received();
 }
@@ -376,7 +440,7 @@ void serial_do_it() {
 
   Serial.printf("Received DO_IT \n");
 
-  bool lights_fading = false;
+  bool lights_fading = false;   // True if lights must be changed
 
   uint32_t from_colors[N_LIGHTS] = {};
   for (uint8_t i=0; i < N_LIGHTS; i++) {
@@ -384,10 +448,10 @@ void serial_do_it() {
     lights_fading = lights_fading || (from_colors[i] != light_values[i][C]);
   }
 
-  bool scrolls_moving = false;
+  bool scrolls_moving = false;   // True if motors must be moved
 
   for (uint8_t i=0; i < N_SCROLLS; i++) {
-    scrolls_moving = scrolls_moving || (positions[i] != scroll_targets[i][TARGET]);
+    scrolls_moving = scrolls_moving || (scroll_targets[i][TARGET] != 0);
   }
 
   elapsedMillis t = 0;
@@ -395,6 +459,7 @@ void serial_do_it() {
   while (!serial_aborted && (lights_fading || scrolls_moving)) {
     ssp.loop();
 
+    /***** Fade Lights *****/
     bool fade = false;
     for (uint8_t i=0; i < N_LIGHTS; i++) {
       if (t < light_values[i][T]) {
@@ -407,16 +472,28 @@ void serial_do_it() {
       }
     }
 
+    /***** Move Motors *****/
     bool move = false;
     for (uint8_t i=0; i < N_SCROLLS; i++) {
-      if (!mot_control(scrolls[i][0], scrolls[i][1], positions[i], scroll_targets[i][TARGET], scroll_targets[i][SPEED])) {
+      if (scroll_targets[i][TARGET] != 0) {
+        bool direction = scroll_targets[i][TARGET] > 0;
+      
+        if (mot_advance(scrolls[i][0], scrolls[i][1], scroll_pins[i], direction, scroll_targets[i][SPEED], (t < ENDSTOP_OVERRIDE))) {
+          move = move || true;
+        } else {
+          scroll_targets[i][TARGET] -= direction ? 1 : -1;
+          move = move || false;
+        }
+      }
+      
+      /*if (!mot_control(scrolls[i][0], scrolls[i][1], positions[i], scroll_targets[i][TARGET], scroll_targets[i][SPEED])) {
         if ((t > ENDSTOP_OVERRIDE) && stop_scroll(scrolls[i][0], scrolls[i][1], scroll_pins[i][END_STOP])) {
           move = move || false;
           scroll_targets[i][TARGET] = positions[i];
         } else {
           move = move || true;
         }
-      }
+      }*/
     }
 
     lights_fading = fade;
@@ -586,7 +663,7 @@ void serial_debug_pos() {
   ssp.readEot();
   u_int32_t hlt = pos_lastchange[HORIZONTAL];
   u_int32_t vlt = pos_lastchange[VERTICAL];
-  Serial.printf("Scroll positions (last change): H=%d (%d), V=%d (%d) \n", positions[HORIZONTAL], hlt, positions[VERTICAL], vlt);
+  Serial.printf("Scroll positions last change: H: %d, V: %d \n", hlt, vlt);
   serial_received();
 }
 
@@ -647,7 +724,6 @@ void setup() {
       scrolls[i][j].setup();
       scrolls[i][j].stop(true);
     }
-    positions[i] = 0;
     pos_lastchange[i] = 0;
   }
 
@@ -755,8 +831,8 @@ void state_init_callbacks() {
   if (sm.executeOnce) {
     Serial.println("State Initialize Callbacks.");
 
-    attachInterrupt(digitalPinToInterrupt(scroll_pins[HORIZONTAL][COUNT_INNER]), hor_count, CHANGE);
-    attachInterrupt(digitalPinToInterrupt(scroll_pins[VERTICAL][COUNT_INNER]), vert_count, CHANGE);
+    // attachInterrupt(digitalPinToInterrupt(scroll_pins[HORIZONTAL][COUNT_INNER]), hor_count, CHANGE);
+    // attachInterrupt(digitalPinToInterrupt(scroll_pins[VERTICAL][COUNT_INNER]), vert_count, CHANGE);
     
     digitalWrite(LED_BUILTIN, LOW);
     blink_status = false; 
