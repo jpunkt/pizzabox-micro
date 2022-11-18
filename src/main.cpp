@@ -9,6 +9,9 @@
 #include "Motor.h"
 #include "ColorHelpers.h"
 
+/*-------- Constants --------*/
+const int MOTOR_TIMEOUT = 1000;    // Timeout for zeroing in millis
+
 // Statemachine setup
 StateMachine sm = StateMachine();
 
@@ -195,12 +198,15 @@ void vert_count() {
  * @param end_pin    Sensor pin attached to emergency stop (end-stop)
  */
 void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin) {
-  // elapsedMillis time = 0;
+  elapsedMillis time = 0;
   if (!digitalRead(zero_pin)) {
     // rewind
-    while (!digitalRead(zero_pin)) {
+    while (!digitalRead(zero_pin) && time < MOTOR_TIMEOUT) {
       mot2.run(255, false);
       mot1.run(127, false);
+    }
+    if (time > MOTOR_TIMEOUT) {
+      Serial.printf("Motor timeout reached\n");
     }
     mot1.stop(false);
     delay(200);
@@ -210,9 +216,12 @@ void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin) {
     mot2.stop(true);
   } else if (digitalRead(end_pin)) {
     // move forward
-    while(digitalRead(zero_pin)) {
+    while(digitalRead(zero_pin) && time < MOTOR_TIMEOUT) {
       mot1.run(127, true);
       mot2.run(55, true);
+    }
+    if (time > MOTOR_TIMEOUT) {
+      Serial.printf("Motor timeout reached\n");
     }
     mot2.stop(false);
     delay(200);
