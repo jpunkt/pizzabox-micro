@@ -60,19 +60,18 @@
 
 /*-------- Constants --------*/
 
-const int ENDSTOP_OVERRIDE = 85;  // time to ignore endstop when motor starts (x 10 us)
-const int SCROLL_ERROR_MS = 500;    // if sensor values don't change in this time, the scroll has an error
+const int ENDSTOP_OVERRIDE = 250;   // time to ignore endstop when motor starts (millis)
 
 // Blink interval constants
-#define WAIT_ON_MS        200      // Blink when waiting for Serial
+#define WAIT_ON_MS        200       // Blink when waiting for Serial
 #define WAIT_OFF_MS      1800
 
-#define ERROR_ON_MS      1000      // Blink when in error state
+#define ERROR_ON_MS      1000       // Blink when in error state
 #define ERROR_OFF_MS      500
 
-#define POST_LED_ON_MS    500      // How long to turn on each LED at POST
+#define POST_LED_ON_MS    500       // How long to turn on each LED at POST
 
-#define REC_COUNTDOWN_MS 5000      // In Recording mode, blink LED for the last X milliseconds
+#define REC_COUNTDOWN_MS 5000       // In Recording mode, blink LED for the last X milliseconds
 
 #define UI_ON_MS          500       // General user interaction blink interval
 #define UI_OFF_MS         500
