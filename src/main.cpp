@@ -24,7 +24,7 @@ State* SER = sm.addState(&state_error);
 
 /*-------- Variables --------*/
 // Convenience array of all UI LEDs
-const int UI_LED_PINS[] = {LED_BUILTIN, BTN_LED_BLUE, BTN_LED_RED, BTN_LED_GREEN, BTN_LED_YELLOW};
+const int UI_LED_PINS[] = {LED_BUILTIN, BTN_LED_BLUE, BTN_LED_RED, BTN_LED_GREEN, BTN_LED_YELLOW, MON_LED01, MON_LED02};
 #define N_LEDS (sizeof(UI_LED_PINS) / sizeof(UI_LED_PINS[0]))
 
 // Statemachine booleans
@@ -115,6 +115,10 @@ SimpleSerialProtocol ssp(Serial1, BAUDRATE, CHARACTER_TIMEOUT, serial_on_error, 
 elapsedMillis blink_time;
 bool blink_status;             // boolean to hold led status (needed to let more than one led blink)
 
+// Battery monitor timer
+uint16_t batt_level;
+elapsedMillis mon_time;
+
 /**
  * @brief Blink the internal LED with defined on- and off- times. Call in loop to blink.
  * 
@@ -137,6 +141,31 @@ void blink(int (&led_pin)[N], uint32_t on_interval, uint32_t off_interval) {
         digitalWrite(led, HIGH);
       blink_time = blink_time - off_interval;
     }
+  }
+}
+
+/**
+ * @brief Measure battery voltage and turn on appropriate LEDs
+ * 
+ */
+void measure_batt() {
+  if (mon_time > MON_INTERVAL) {
+    batt_level = (batt_level + analogRead(PIN_BATT)) / 2;
+    Serial.printf("Battery level %d\n", batt_level);
+    if (batt_level > BATT_HIGH) {
+      digitalWrite(MON_LED02, HIGH);
+      digitalWrite(MON_LED01, LOW);
+    } else if ((batt_level > BATT_ERR) && (batt_level < BATT_LOW)) {
+      digitalWrite(MON_LED01, HIGH);
+      digitalWrite(MON_LED02, LOW);
+    } else if (batt_level <= BATT_ERR) {
+      digitalWrite(MON_LED01, !digitalRead(MON_LED01));
+      digitalWrite(MON_LED02, !digitalRead(MON_LED01));
+    } else {
+      digitalWrite(MON_LED01, HIGH);
+      digitalWrite(MON_LED02, HIGH);
+    }
+    mon_time = 0;
   }
 }
 
@@ -610,6 +639,9 @@ void setup() {
 
   digitalWrite(PIN_HELO2, LOW);
 
+  // Battery monitor
+  batt_level = (BATT_HIGH + BATT_LOW) / 2;
+
   // initialize LEDs
   for (const int &led : UI_LED_PINS) {
     pinMode(led, OUTPUT);
@@ -756,12 +788,14 @@ void state_init_callbacks() {
 
   int led[] = {LED_BUILTIN};
   blink(led, WAIT_ON_MS, WAIT_OFF_MS);
+  measure_batt();
 }
 
 
 void state_wait_serial() {
   if (sm.executeOnce) {
     Serial.println("State Waiting for Serial Handshake.");
+    Serial.printf("Battery level: %d\n", batt_level);
     serial_connected = false;
     handshake_complete = false;
 
@@ -771,6 +805,7 @@ void state_wait_serial() {
 
   int led[] = {LED_BUILTIN};
   blink(led, WAIT_ON_MS, WAIT_OFF_MS);
+  measure_batt();
   ssp.loop();
 }
 
@@ -778,6 +813,8 @@ void state_wait_serial() {
 void state_serial_com() {
   if (sm.executeOnce) {
     digitalWrite(LED_BUILTIN, LOW);
+    digitalWrite(MON_LED01, LOW);
+    digitalWrite(MON_LED02, LOW);
     Serial.println("State Serial Communication.");
   }
 

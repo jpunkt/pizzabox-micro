@@ -36,10 +36,10 @@
 
 // Lights
 #define LED_FRONT       41
-#define LED_COUNT_FRONT 26
+#define LED_COUNT_FRONT 26       // Number of LEDs in frontlight
 
 #define LED_BACK        14
-#define LED_COUNT_BACK  120
+#define LED_COUNT_BACK  120      // Number of LEDs in backlight
 
 // Buttons
 #define BTN_LED_BLUE    23       // 21
@@ -54,6 +54,16 @@
 // Handshake pins
 #define PIN_HELO1       10
 #define PIN_HELO2        2
+
+// Battery Monitor
+#define PIN_BATT        15       // Battery monitor (voltage divider) pin
+#define MON_LED01       31       // Red notification LED
+#define MON_LED02       32       // Green notification LED
+
+const int32_t MON_INTERVAL = 500;  // interval for monitoring battery voltage (millis)
+const int16_t BATT_HIGH = 900;     // voltage above this level is battery full
+const int16_t BATT_LOW  = 820;     // voltage below this level is battery low
+const int16_t BATT_ERR  = 700;     // voltage below this level is battery error
 
 // NC (Blink-Sink)
 #define NC_PIN          11
