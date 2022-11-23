@@ -78,7 +78,7 @@ enum Scroll_Pin_Idx {
 };
 
 uint8_t scroll_pins[N_SCROLLS][4] = {
-  {HORZ_END_OUTER, HORZ_END_INNER, HORZ_CNT_OUTER, HORZ_CNT_INNER},
+  {HORZ_END_OUTER, HORZ_END_INNER, HORZ_CNT_INNER, HORZ_CNT_OUTER},
   {VERT_END_INNER, VERT_END_OUTER, VERT_CNT_OUTER, VERT_CNT_INNER}
 };
 
@@ -151,7 +151,7 @@ void blink(int (&led_pin)[N], uint32_t on_interval, uint32_t off_interval) {
 void measure_batt() {
   if (mon_time > MON_INTERVAL) {
     batt_level = (batt_level + analogRead(PIN_BATT)) / 2;
-    Serial.printf("Battery level %d\n", batt_level);
+    // Serial.printf("Battery level %d\n", batt_level);
     if (batt_level > BATT_HIGH) {
       digitalWrite(MON_LED02, HIGH);
       digitalWrite(MON_LED01, LOW);
