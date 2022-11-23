@@ -71,6 +71,7 @@ const int16_t BATT_ERR  = 700;     // voltage below this level is battery error
 /*-------- Constants --------*/
 
 const int ENDSTOP_OVERRIDE = 250;   // time to ignore endstop when motor starts (millis)
+const int MOTOR_TIMEOUT = 5000;     // Timeout for zeroing in millis. Motor stops if no image stop was triggered in this interval
 
 // Blink interval constants
 #define WAIT_ON_MS        200       // Blink when waiting for Serial

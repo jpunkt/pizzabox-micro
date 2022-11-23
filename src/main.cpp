@@ -9,8 +9,6 @@
 #include "Motor.h"
 #include "ColorHelpers.h"
 
-/*-------- Constants --------*/
-const int MOTOR_TIMEOUT = 15000;    // Timeout for zeroing in millis   TODO Set to something meaningful
 
 // Statemachine setup
 StateMachine sm = StateMachine();
@@ -62,7 +60,7 @@ uint32_t light_values[N_LIGHTS][2] = {
 Motor scrolls[N_SCROLLS][2] = {
   {
     Motor(HORZ_LEFT_PWM, HORZ_LEFT_AIN1, HORZ_LEFT_AIN2),
-    Motor(HORZ_RIGHT_PWM, HORZ_RIGHT_AIN1, HORZ_RIGHT_AIN2)
+    Motor(HORZ_RIGHT_PWM, HORZ_RIGHT_AIN1, HORZ_RIGHT_AIN2),  
   },
   {
     Motor(VERT_UP_PWM, VERT_UP_AIN1, VERT_UP_AIN2),
@@ -183,16 +181,20 @@ void measure_batt() {
  * @param mot2       Motor in negative direction
  * @param zero_pin   Sensor pin where LOW enables count
  * @param end_pin    Sensor pin attached to emergency stop (end-stop)
+ * @param count_pin  Sensor pin for image stops
  */
-void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin) {
+void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin, int count_pin) {
   elapsedMillis time = 0;
   if (!digitalRead(zero_pin)) {
     // rewind
     while (!digitalRead(zero_pin) && time < MOTOR_TIMEOUT) {
+      if (digitalRead(count_pin)) {
+        time = 0;
+      }
       mot2.run(255, false);
       mot1.run(127, false);
     }
-    if (time > MOTOR_TIMEOUT) {
+    if (time >= MOTOR_TIMEOUT) {
       Serial.printf("Motor timeout reached\n");
     }
     mot1.stop(false);
@@ -204,10 +206,13 @@ void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin) {
   } else if (digitalRead(end_pin)) {
     // move forward
     while(digitalRead(zero_pin) && time < MOTOR_TIMEOUT) {
-      mot1.run(127, true);
-      mot2.run(55, true);
+      if (digitalRead(count_pin)) {
+        time = 0;
+      }
+      mot1.run(200, true);
+      mot2.run(100, true);
     }
-    if (time > MOTOR_TIMEOUT) {
+    if (time >= MOTOR_TIMEOUT) {
       Serial.printf("Motor timeout reached\n");
     }
     mot2.stop(false);
@@ -221,7 +226,7 @@ void zero_motor(Motor &mot1, Motor &mot2, int zero_pin, int end_pin) {
 
 void zero_scrolls() {
   for (int i=0; i < N_SCROLLS; i++) {
-    zero_motor(scrolls[i][0], scrolls[i][1], scroll_pins[i][END_OUTER], scroll_pins[i][END_INNER]);
+    zero_motor(scrolls[i][0], scrolls[i][1], scroll_pins[i][END_OUTER], scroll_pins[i][END_INNER], scroll_pins[i][COUNT_INNER]);
   }
 }
 
@@ -293,7 +298,7 @@ bool mot_advance(Motor &mot1, Motor &mot2,
                  uint8_t pins[],
                  bool direction, int16_t speed, bool startup) {
   uint8_t speed1 = (speed * 64) - 1;
-  uint8_t speed2 = (speed * 32) - 1;
+  uint8_t speed2 = (speed * 24) - 1;
 
   bool outer_state = digitalRead(pins[COUNT_OUTER]);
   bool inner_state = digitalRead(pins[COUNT_INNER]);
@@ -311,15 +316,20 @@ bool mot_advance(Motor &mot1, Motor &mot2,
     }
   } else {
     if ((direction && inner_state) || (!direction && outer_state)) {
-      mot1.run(speed2, direction);
-      mot2.run(speed2, direction);
+      if (direction) {
+        mot1.run(speed1, direction);
+        mot2.stop(true);
+      } else {
+        mot2.run(speed1, direction);
+        mot1.stop(true);
+      }
     } else {
       if (direction) {
         mot1.run(speed1, direction);
         mot2.run(speed2, direction);
       } else {
-        mot1.run(speed2, direction);
         mot2.run(speed1, direction);
+        mot1.run(speed2, direction);
       }
     }
   }
