@@ -76,7 +76,7 @@ enum Scroll_Pin_Idx {
 };
 
 uint8_t scroll_pins[N_SCROLLS][4] = {
-  {HORZ_END_OUTER, HORZ_END_INNER, HORZ_CNT_INNER, HORZ_CNT_OUTER},
+  {HORZ_END_OUTER, HORZ_END_INNER, HORZ_CNT_OUTER, HORZ_CNT_OUTER},
   {VERT_END_INNER, VERT_END_OUTER, VERT_CNT_OUTER, VERT_CNT_INNER}
 };
 
@@ -298,19 +298,22 @@ bool mot_advance(Motor &mot1, Motor &mot2,
                  uint8_t pins[],
                  bool direction, int16_t speed, bool startup) {
   uint8_t speed1 = (speed * 64) - 1;
-  uint8_t speed2 = (speed * 24) - 1;
+  uint8_t speed2 = (speed * 32) - 1;
+  uint8_t speed3 = (speed * 24) - 1;
 
-  bool outer_state = digitalRead(pins[COUNT_OUTER]);
-  bool inner_state = digitalRead(pins[COUNT_INNER]);
-  bool outer_stop = digitalRead(pins[END_OUTER]);
-  bool inner_stop = digitalRead(pins[END_INNER]);
+  uint8_t outer_state = digitalRead(pins[COUNT_OUTER]);
+  uint8_t inner_state = digitalRead(pins[COUNT_INNER]);
+  uint8_t outer_stop = digitalRead(pins[END_OUTER]);
+  uint8_t inner_stop = digitalRead(pins[END_INNER]);
 
   if (!startup) {
     if ((direction && inner_stop) || (!direction && outer_stop)) {
+      Serial.printf("Motor stopped with dir=%d, inner_stop=%d, outer_stop=%d\n", direction, inner_stop, outer_stop);
       stop_scroll(mot1, mot2);
       return false;
     }
     if (outer_state && inner_state) {
+      Serial.printf("Motor stopped with outer_state=%d and inner_state=%d\n", outer_state, inner_state);
       stop_scroll(mot1, mot2);
       return false;
     }
@@ -318,10 +321,10 @@ bool mot_advance(Motor &mot1, Motor &mot2,
     if ((direction && inner_state) || (!direction && outer_state)) {
       if (direction) {
         mot1.run(speed1, direction);
-        mot2.stop(true);
+        mot2.run(speed3, direction);
       } else {
         mot2.run(speed1, direction);
-        mot1.stop(true);
+        mot1.run(speed3, direction);
       }
     } else {
       if (direction) {
